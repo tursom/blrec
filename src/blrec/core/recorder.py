@@ -468,7 +468,9 @@ class Recorder(
 
         await self._prepare()
         if self._stream_available:
-            await self._stream_recorder.start()
+            pass
+            # skip steam record
+            # await self._stream_recorder.start()
 
         self._logger.info('Started recording')
         await self._emit('recording_started', self)
@@ -478,7 +480,7 @@ class Recorder(
             return
         self._recording = False
 
-        await self._stream_recorder.stop()
+        # await self._stream_recorder.stop()
         if self.save_raw_danmaku:
             self._raw_danmaku_dumper.disable()
             self._raw_danmaku_receiver.stop()
