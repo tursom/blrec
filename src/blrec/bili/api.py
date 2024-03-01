@@ -86,7 +86,16 @@ class BaseApi(ABC):
         for base_url in base_urls:
             url = base_url + path
             try:
-                return await self._get_json_res(url, *args, **kwds)
+                while True:
+                    try:
+                        return await self._get_json_res(url, *args, **kwds)
+                    except ApiRequestError as e:
+                        if e.code == -799:
+                            self._logger.warning('Request to frequently: {}', url)
+                            # delay 15 second
+                            await asyncio.sleep(15)
+                            continue
+                        raise e
             except Exception as exc:
                 exception = exc
                 self._logger.trace('Failed to get json from {}: {}', url, repr(exc))
