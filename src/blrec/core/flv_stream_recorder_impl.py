@@ -149,7 +149,7 @@ class FLVStreamRecorderImpl(StreamRecorderImpl, SupportDebugMixin):
                     self._prober,
                     self._injector,
                     self._analyser,
-                    # self._dumper,
+                    self._dumper,
                     self._rec_statistics,
                     self._progress_bar,
                     self._exception_handler,

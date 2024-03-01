@@ -83,16 +83,19 @@ class FlvWriter:
         self._dumper = FlvDumper(stream)
 
     def write_header(self, header: FlvHeader) -> int:
+        return 0
         with AutoRollbacker(self._stream):
             self._dumper.dump_header(header)
             self._dumper.dump_previous_tag_size(0)
             return header.size + BACK_POINTER_SIZE
 
     def write_tag(self, tag: FlvTag) -> int:
+        return 0
         with AutoRollbacker(self._stream):
             self._dumper.dump_tag(tag)
             self._dumper.dump_previous_tag_size(tag.tag_size)
             return tag.tag_size + BACK_POINTER_SIZE
 
     def write_tags(self, tags: Iterable[FlvTag]) -> int:
+        return 0
         return sum(map(self.write_tag, tags))

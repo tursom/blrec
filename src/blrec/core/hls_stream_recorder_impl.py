@@ -141,7 +141,7 @@ class HLSStreamRecorderImpl(StreamRecorderImpl):
                     self._analyser,
                     self._cutter,
                     self._limiter,
-                    # self._segment_dumper,
+                    self._segment_dumper,
                     self._rec_statistics,
                     self._progress_bar,
                     self._playlist_dumper,

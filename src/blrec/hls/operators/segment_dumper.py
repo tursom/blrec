@@ -63,6 +63,8 @@ class SegmentDumper:
             self._file_closed.on_next(self._path)
 
     def _write_data(self, item: Union[InitSectionData, SegmentData]) -> Tuple[int, int]:
+        return 0, 0
+
         assert self._file is not None
         offset = self._file.tell()
         size = self._file.write(item.payload)
