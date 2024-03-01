@@ -35,6 +35,7 @@ class StreamFetcher(AsyncCooperationMixin):
             scheduler: Optional[abc.SchedulerBase] = None,
         ) -> abc.DisposableBase:
             def on_next(url: str) -> None:
+                return
                 try:
                     logger.info(f'Requesting live stream... {url}')
                     response = self._session.get(
