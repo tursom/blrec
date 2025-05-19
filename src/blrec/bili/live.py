@@ -27,6 +27,7 @@ from .typing import ApiPlatform, QualityNumber, ResponseData, StreamCodec, Strea
 __all__ = ('Live',)
 
 from loguru import logger
+from urllib.parse import quote
 
 _INFO_PATTERN = re.compile(
     rb'<script>\s*window\.__NEPTUNE_IS_MY_WAIFU__\s*=\s*(\{.*?\})\s*</script>'
@@ -102,7 +103,10 @@ class Live:
 
     @cookie.setter
     def cookie(self, value: str) -> None:
-        self._cookie = value
+        # 检查 value 的非 ASCII 字符并使用 url encode 编码非 ASCII 字符
+        encoded_value = ''.join(ch if ch.isascii() else quote(ch, encoding='utf-8') for ch in value)
+
+        self._cookie = encoded_value
         self._update_headers()
         self._webapi.headers = self.headers
         self._appapi.headers = self.headers
