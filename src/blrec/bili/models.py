@@ -5,7 +5,11 @@ from typing import cast
 
 import attr
 from lxml import html
-from lxml.html.clean import clean_html
+
+try:
+    from lxml.html.clean import clean_html
+except ImportError:
+    from lxml_html_clean import clean_html
 
 from .typing import ResponseData
 from ..utils.url import ensure_scheme

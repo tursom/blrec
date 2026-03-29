@@ -148,3 +148,6 @@ _*/
 
 # PyCharm
 .idea/
+
+# AI Agents files
+.codex

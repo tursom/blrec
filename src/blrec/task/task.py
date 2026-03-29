@@ -302,6 +302,14 @@ class RecordTask:
         self._recorder.save_raw_danmaku = value
 
     @property
+    def record_raw_danmaku_during_waiting(self) -> bool:
+        return self._recorder.record_raw_danmaku_during_waiting
+
+    @record_raw_danmaku_during_waiting.setter
+    def record_raw_danmaku_during_waiting(self, value: bool) -> None:
+        self._recorder.record_raw_danmaku_during_waiting = value
+
+    @property
     def stream_format(self) -> StreamFormat:
         return self._recorder.stream_format
 

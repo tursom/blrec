@@ -1,12 +1,11 @@
 import asyncio
 import json
-from contextlib import suppress
-from threading import Lock
+import os
+from enum import Enum
+from typing import Optional
 
 import aiofiles
-from aiofiles.threadpool.text import AsyncTextIOWrapper
 from loguru import logger
-from tenacity import AsyncRetrying, retry_if_not_exception_type, stop_after_attempt
 
 from blrec.bili.live import Live
 from blrec.event.event_emitter import EventEmitter, EventListener
@@ -16,9 +15,13 @@ from blrec.path import raw_danmaku_path
 from blrec.utils.mixins import SwitchableMixin
 
 from .raw_danmaku_receiver import RawDanmakuReceiver
-from .stream_recorder import StreamRecorder, StreamRecorderEventListener
+from .stream_recorder import StreamRecorder
 
-__all__ = 'RawDanmakuDumper', 'RawDanmakuDumperEventListener'
+__all__ = (
+    'RawDanmakuDumper',
+    'RawDanmakuDumperEventListener',
+    'RawDanmakuDumpingState',
+)
 
 
 class RawDanmakuDumperEventListener(EventListener):
@@ -29,9 +32,15 @@ class RawDanmakuDumperEventListener(EventListener):
         ...
 
 
+class RawDanmakuDumpingState(str, Enum):
+    IDLE = 'idle'
+    WAITING_DUMPING = 'waiting_dumping'
+    LIVE_PRELUDE_SPOOLING = 'live_prelude_spooling'
+    LIVE_DUMPING = 'live_dumping'
+
+
 class RawDanmakuDumper(
     EventEmitter[RawDanmakuDumperEventListener],
-    StreamRecorderEventListener,
     SwitchableMixin,
 ):
     def __init__(
@@ -45,75 +54,180 @@ class RawDanmakuDumper(
         self._logger = logger.bind(**self._logger_context)
         self._stream_recorder = stream_recorder
         self._receiver = danmaku_receiver
-        self._lock: Lock = Lock()
+        self._lock = asyncio.Lock()
+        self._state = RawDanmakuDumpingState.IDLE
+        self._path: Optional[str] = None
+        self._spool_path: Optional[str] = None
+        self._prelude_path: Optional[str] = None
 
     def _do_enable(self) -> None:
-        self._stream_recorder.add_listener(self)
         self._logger.debug('Enabled raw danmaku dumper')
 
     def _do_disable(self) -> None:
-        self._stream_recorder.remove_listener(self)
-        asyncio.create_task(self._stop_dumping())
+        asyncio.create_task(self.shutdown())
         self._logger.debug('Disabled raw danmaku dumper')
 
-    async def on_video_file_created(
-        self, video_path: str, record_start_time: int
-    ) -> None:
-        with self._lock:
+    @property
+    def state(self) -> RawDanmakuDumpingState:
+        return self._state
+
+    async def start_waiting(self) -> None:
+        async with self._lock:
+            if self._state == RawDanmakuDumpingState.WAITING_DUMPING:
+                return
+            await self._stop_locked(finalize_prelude=False)
+            self._path, _ = self._stream_recorder.make_waiting_raw_danmaku_path()
+            self._create_dump_task(self._path)
+            self._state = RawDanmakuDumpingState.WAITING_DUMPING
+
+    async def stop_waiting(self) -> None:
+        async with self._lock:
+            if self._state != RawDanmakuDumpingState.WAITING_DUMPING:
+                return
+            await self._stop_dumping_task()
+            self._reset_paths()
+            self._state = RawDanmakuDumpingState.IDLE
+
+    async def start_live_prelude(self) -> None:
+        async with self._lock:
+            if self._state == RawDanmakuDumpingState.LIVE_PRELUDE_SPOOLING:
+                return
+            await self._stop_locked(finalize_prelude=False)
+            self._prelude_path, _ = self._stream_recorder.make_prelude_raw_danmaku_path()
+            self._spool_path = self._prelude_path + '.tmp'
+            self._create_dump_task(self._spool_path, emit_events=False)
+            self._path = None
+            self._state = RawDanmakuDumpingState.LIVE_PRELUDE_SPOOLING
+
+    async def start_live_dumping(self, video_path: str) -> None:
+        async with self._lock:
+            initial_data_path = None
+            if self._state == RawDanmakuDumpingState.LIVE_PRELUDE_SPOOLING:
+                await self._stop_dumping_task()
+                initial_data_path = self._spool_path
+            elif self._state == RawDanmakuDumpingState.WAITING_DUMPING:
+                await self._stop_dumping_task()
+            elif self._state == RawDanmakuDumpingState.LIVE_DUMPING:
+                await self._stop_dumping_task()
+
             self._path = raw_danmaku_path(video_path)
-            await self._stop_dumping()
-            self._start_dumping()
+            self._create_dump_task(self._path, initial_data_path=initial_data_path)
+            self._spool_path = None
+            self._prelude_path = None
+            self._state = RawDanmakuDumpingState.LIVE_DUMPING
 
-    async def on_video_file_completed(self, video_path: str) -> None:
-        with self._lock:
-            await self._stop_dumping()
+    async def complete_live_dumping(self) -> None:
+        async with self._lock:
+            if self._state != RawDanmakuDumpingState.LIVE_DUMPING:
+                return
+            await self._stop_dumping_task()
+            self._reset_paths()
+            self._state = RawDanmakuDumpingState.IDLE
 
-    def _start_dumping(self) -> None:
-        self._create_dump_task()
+    async def stop_live(self) -> None:
+        async with self._lock:
+            await self._stop_locked(finalize_prelude=True)
 
-    async def _stop_dumping(self) -> None:
-        if hasattr(self, '_dump_task'):
-            await self._cancel_dump_task()
-            del self._dump_task  # type: ignore
+    async def shutdown(self) -> None:
+        async with self._lock:
+            await self._stop_locked(finalize_prelude=True)
 
-    def _create_dump_task(self) -> None:
-        self._dump_task = asyncio.create_task(self._do_dump())
+    def _create_dump_task(
+        self,
+        path: str,
+        *,
+        emit_events: bool = True,
+        initial_data_path: Optional[str] = None,
+    ) -> None:
+        self._dump_task = asyncio.create_task(
+            self._do_dump(
+                path,
+                emit_events=emit_events,
+                initial_data_path=initial_data_path,
+            )
+        )
         self._dump_task.add_done_callback(exception_callback)
 
     async def _cancel_dump_task(self) -> None:
         self._dump_task.cancel()
-        with suppress(asyncio.CancelledError):
+        try:
             await self._dump_task
+        except asyncio.CancelledError:
+            pass
+
+    async def _stop_dumping_task(self) -> None:
+        if not hasattr(self, '_dump_task'):
+            return
+        await self._cancel_dump_task()
+        del self._dump_task  # type: ignore
+
+    async def _stop_locked(self, *, finalize_prelude: bool) -> None:
+        if self._state == RawDanmakuDumpingState.LIVE_PRELUDE_SPOOLING:
+            await self._stop_dumping_task()
+            if finalize_prelude:
+                await self._finalize_prelude_file()
+            else:
+                await self._discard_spool()
+        elif self._state in (
+            RawDanmakuDumpingState.WAITING_DUMPING,
+            RawDanmakuDumpingState.LIVE_DUMPING,
+        ):
+            await self._stop_dumping_task()
+
+        self._reset_paths()
+        self._state = RawDanmakuDumpingState.IDLE
+
+    async def _discard_spool(self) -> None:
+        if self._spool_path is not None and os.path.exists(self._spool_path):
+            os.remove(self._spool_path)
+
+    async def _finalize_prelude_file(self) -> None:
+        if self._spool_path is None or self._prelude_path is None:
+            return
+        if os.path.exists(self._spool_path):
+            os.replace(self._spool_path, self._prelude_path)
+            self._logger.info(f"Raw danmaku file created: '{self._prelude_path}'")
+            await self._emit('raw_danmaku_file_created', self._prelude_path)
+            self._logger.info(f"Raw danmaku file completed: '{self._prelude_path}'")
+            await self._emit('raw_danmaku_file_completed', self._prelude_path)
+
+    def _reset_paths(self) -> None:
+        self._path = None
+        self._spool_path = None
+        self._prelude_path = None
 
     @async_task_with_logger_context
-    async def _do_dump(self) -> None:
+    async def _do_dump(
+        self,
+        path: str,
+        *,
+        emit_events: bool = True,
+        initial_data_path: Optional[str] = None,
+    ) -> None:
         self._logger.debug('Started dumping raw danmaku')
         try:
-            async with aiofiles.open(self._path, 'wt', encoding='utf8') as f:
-                self._logger.info(f"Raw danmaku file created: '{self._path}'")
-                await self._emit('raw_danmaku_file_created', self._path)
+            async with aiofiles.open(path, 'wt', encoding='utf8') as f:
+                if emit_events:
+                    self._logger.info(f"Raw danmaku file created: '{path}'")
+                    await self._emit('raw_danmaku_file_created', path)
 
-                async for attempt in AsyncRetrying(
-                    retry=retry_if_not_exception_type((asyncio.CancelledError)),
-                    stop=stop_after_attempt(3),
-                ):
-                    with attempt:
-                        try:
-                            await self._dumping_loop(f)
-                        except Exception as e:
-                            submit_exception(e)
-                            raise
+                if initial_data_path is not None and os.path.exists(initial_data_path):
+                    async with aiofiles.open(
+                        initial_data_path, 'rt', encoding='utf8'
+                    ) as initial_file:
+                        async for line in initial_file:
+                            await f.write(line)
+                    os.remove(initial_data_path)
+
                 while True:
                     danmu = await self._receiver.get_raw_danmaku()
                     json_string = json.dumps(danmu, ensure_ascii=False)
                     await f.write(json_string + '\n')
+        except Exception as e:
+            submit_exception(e)
+            raise
         finally:
-            self._logger.info(f"Raw danmaku file completed: '{self._path}'")
-            await self._emit('raw_danmaku_file_completed', self._path)
+            if emit_events:
+                self._logger.info(f"Raw danmaku file completed: '{path}'")
+                await self._emit('raw_danmaku_file_completed', path)
             self._logger.debug('Stopped dumping raw danmaku')
-
-    async def _dumping_loop(self, file: AsyncTextIOWrapper) -> None:
-        while True:
-            danmu = await self._receiver.get_raw_danmaku()
-            json_string = json.dumps(danmu, ensure_ascii=False)
-            await file.write(json_string + '\n')

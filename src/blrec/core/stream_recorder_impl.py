@@ -185,6 +185,16 @@ class StreamRecorderImpl(
     def path_template(self, value: str) -> None:
         self._path_provider.path_template = value
 
+    def make_waiting_raw_danmaku_path(self, timestamp: Optional[int] = None) -> Tuple[str, int]:
+        return self._path_provider.make_raw_danmaku_path(
+            timestamp, suffix='.waiting.jsonl'
+        )
+
+    def make_prelude_raw_danmaku_path(self, timestamp: Optional[int] = None) -> Tuple[str, int]:
+        return self._path_provider.make_raw_danmaku_path(
+            timestamp, suffix='.prelude.jsonl'
+        )
+
     @property
     def stream_format(self) -> StreamFormat:
         return self._stream_param_holder.stream_format

@@ -4,7 +4,7 @@ import socket
 import aiohttp
 import requests
 
-__all__ = ('connector', 'timeout')
+__all__ = ('create_connector', 'timeout')
 
 USE_IPV4_ONLY = bool(os.environ.get('BLREC_IPV4'))
 
@@ -14,5 +14,8 @@ else:
     requests.packages.urllib3.util.connection.HAS_IPV6 = False  # type: ignore
     family = socket.AF_INET
 
-connector = aiohttp.TCPConnector(family=family, limit=200)
 timeout = aiohttp.ClientTimeout(total=10)
+
+
+def create_connector() -> aiohttp.TCPConnector:
+    return aiohttp.TCPConnector(family=family, limit=200)

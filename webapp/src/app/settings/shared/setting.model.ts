@@ -22,6 +22,7 @@ export interface DanmakuSettings {
   recordGuardBuy: boolean;
   recordSuperChat: boolean;
   saveRawDanmaku: boolean;
+  recordRawDanmakuDuringWaiting: boolean;
 }
 
 export type DanmakuOptions = Nullable<DanmakuSettings>;

@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Tuple
 
 from loguru import logger
 
@@ -143,6 +143,16 @@ class StreamRecorder(
     @path_template.setter
     def path_template(self, value: str) -> None:
         self._impl.path_template = value
+
+    def make_waiting_raw_danmaku_path(
+        self, timestamp: Optional[int] = None
+    ) -> Tuple[str, int]:
+        return self._impl.make_waiting_raw_danmaku_path(timestamp)
+
+    def make_prelude_raw_danmaku_path(
+        self, timestamp: Optional[int] = None
+    ) -> Tuple[str, int]:
+        return self._impl.make_prelude_raw_danmaku_path(timestamp)
 
     @property
     def quality_number(self) -> QualityNumber:

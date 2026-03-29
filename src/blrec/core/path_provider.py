@@ -20,10 +20,18 @@ class PathProvider(AsyncCooperationMixin):
     def __call__(self, timestamp: int = None) -> Tuple[str, int]:
         if timestamp is None:
             timestamp = self._call_coroutine(self._live.get_timestamp())
-        path = self._make_path(timestamp)
+        path = self._make_unique_path(self._make_path(timestamp, '.flv'))
         return path, timestamp
 
-    def _make_path(self, timestamp: int) -> str:
+    def make_raw_danmaku_path(
+        self, timestamp: int = None, *, suffix: str = '.jsonl'
+    ) -> Tuple[str, int]:
+        if timestamp is None:
+            timestamp = self._call_coroutine(self._live.get_timestamp())
+        path = self._make_unique_path(self._make_path(timestamp, suffix))
+        return path, timestamp
+
+    def _make_path(self, timestamp: int, suffix: str) -> str:
         date_time = datetime.fromtimestamp(timestamp)
         relpath = self.path_template.format(
             roomid=self._live.room_id,
@@ -39,10 +47,12 @@ class PathProvider(AsyncCooperationMixin):
             second=str(date_time.second).rjust(2, '0'),
         )
 
-        pathname = os.path.abspath(
-            os.path.expanduser(os.path.join(self.out_dir, relpath) + '.flv')
-        )
+        pathname = os.path.abspath(os.path.expanduser(os.path.join(self.out_dir, relpath)))
+        pathname += suffix
         os.makedirs(os.path.dirname(pathname), exist_ok=True)
+        return pathname
+
+    def _make_unique_path(self, pathname: str) -> str:
         while os.path.exists(pathname):
             root, ext = os.path.splitext(pathname)
             m = re.search(r'_\((\d+)\)$', root)

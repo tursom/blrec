@@ -14,6 +14,7 @@ from blrec.bili.models import RoomInfo
 from blrec.bili.typing import QualityNumber, StreamFormat
 from blrec.core.typing import MetaData
 from blrec.event.event_emitter import EventEmitter, EventListener
+from blrec.exception import exception_callback
 from blrec.flv.operators import StreamProfile
 from blrec.setting.typing import RecordingMode
 from blrec.utils.mixins import AsyncStoppableMixin
@@ -100,6 +101,7 @@ class Recorder(
         save_cover: bool = False,
         cover_save_strategy: CoverSaveStrategy = CoverSaveStrategy.DEFAULT,
         save_raw_danmaku: bool = False,
+        record_raw_danmaku_during_waiting: bool = False,
     ) -> None:
         super().__init__()
         self._logger_context = {'room_id': live.room_id}
@@ -108,7 +110,11 @@ class Recorder(
         self._live = live
         self._danmaku_client = danmaku_client
         self._live_monitor = live_monitor
-        self.save_raw_danmaku = save_raw_danmaku
+        self._save_raw_danmaku = save_raw_danmaku
+        self._record_raw_danmaku_during_waiting = (
+            record_raw_danmaku_during_waiting
+        )
+        self._raw_danmaku_coordinator_lock = asyncio.Lock()
 
         self._recording: bool = False
         self._stream_available: bool = False
@@ -151,6 +157,24 @@ class Recorder(
             save_cover=save_cover,
             cover_save_strategy=cover_save_strategy,
         )
+
+    @property
+    def save_raw_danmaku(self) -> bool:
+        return self._save_raw_danmaku
+
+    @save_raw_danmaku.setter
+    def save_raw_danmaku(self, value: bool) -> None:
+        self._save_raw_danmaku = value
+        self._schedule_raw_danmaku_state_sync()
+
+    @property
+    def record_raw_danmaku_during_waiting(self) -> bool:
+        return self._record_raw_danmaku_during_waiting
+
+    @record_raw_danmaku_during_waiting.setter
+    def record_raw_danmaku_during_waiting(self, value: bool) -> None:
+        self._record_raw_danmaku_during_waiting = value
+        self._schedule_raw_danmaku_state_sync()
 
     @property
     def live(self) -> Live:
@@ -390,6 +414,7 @@ class Recorder(
         self._stream_recorder.stream_available_time = None
         await self._stop_recording()
         self._print_waiting_message()
+        await self._sync_raw_danmaku_state()
 
     async def on_live_stream_available(self, live: Live) -> None:
         self._logger.debug('The live stream becomes available')
@@ -407,9 +432,18 @@ class Recorder(
         self._stream_recorder.update_progress_bar_info()
 
     async def on_video_file_created(self, path: str, record_start_time: int) -> None:
+        if self.save_raw_danmaku:
+            self._raw_danmaku_receiver.start()
+            await self._raw_danmaku_dumper.start_live_dumping(path)
+        else:
+            await self._raw_danmaku_dumper.stop_live()
+            self._raw_danmaku_receiver.stop()
         await self._emit('video_file_created', self, path)
 
     async def on_video_file_completed(self, path: str) -> None:
+        await self._raw_danmaku_dumper.complete_live_dumping()
+        if not self._recording or not self.save_raw_danmaku:
+            self._raw_danmaku_receiver.stop()
         await self._emit('video_file_completed', self, path)
 
     async def on_danmaku_file_created(self, path: str) -> None:
@@ -436,6 +470,7 @@ class Recorder(
         self._danmaku_dumper.add_listener(self)
         self._raw_danmaku_dumper.add_listener(self)
         self._cover_downloader.add_listener(self)
+        self._raw_danmaku_dumper.enable()
         self._logger.debug('Started recorder')
 
         self._print_live_info()
@@ -444,13 +479,16 @@ class Recorder(
             await self._start_recording()
         else:
             self._print_waiting_message()
+            await self._sync_raw_danmaku_state()
 
     async def _do_stop(self) -> None:
         await self._stop_recording()
+        await self._sync_raw_danmaku_state(force_stop=True)
         self._live_monitor.remove_listener(self)
         self._danmaku_dumper.remove_listener(self)
         self._raw_danmaku_dumper.remove_listener(self)
         self._cover_downloader.remove_listener(self)
+        self._raw_danmaku_dumper.disable()
         self._logger.debug('Stopped recorder')
 
     async def _start_recording(self) -> None:
@@ -459,8 +497,11 @@ class Recorder(
         self._recording = True
 
         if self.save_raw_danmaku:
-            self._raw_danmaku_dumper.enable()
             self._raw_danmaku_receiver.start()
+            await self._raw_danmaku_dumper.start_live_prelude()
+        else:
+            await self._raw_danmaku_dumper.stop_waiting()
+            self._raw_danmaku_receiver.stop()
         self._danmaku_dumper.enable()
         self._danmaku_receiver.start()
         self._cover_downloader.enable()
@@ -479,9 +520,8 @@ class Recorder(
         self._recording = False
 
         await self._stream_recorder.stop()
-        if self.save_raw_danmaku:
-            self._raw_danmaku_dumper.disable()
-            self._raw_danmaku_receiver.stop()
+        await self._raw_danmaku_dumper.stop_live()
+        self._raw_danmaku_receiver.stop()
         self._danmaku_dumper.disable()
         self._danmaku_receiver.stop()
         self._cover_downloader.disable()
@@ -499,6 +539,30 @@ class Recorder(
         self._danmaku_dumper.set_live_start_time(live_start_time)
         self._danmaku_dumper.clear_files()
         self._stream_recorder.clear_files()
+
+    def _schedule_raw_danmaku_state_sync(self) -> None:
+        try:
+            task = asyncio.create_task(self._sync_raw_danmaku_state())
+        except RuntimeError:
+            return
+        task.add_done_callback(exception_callback)
+
+    async def _sync_raw_danmaku_state(self, *, force_stop: bool = False) -> None:
+        async with self._raw_danmaku_coordinator_lock:
+            if force_stop or self.stopped:
+                await self._raw_danmaku_dumper.shutdown()
+                self._raw_danmaku_receiver.stop()
+                return
+
+            if self._recording:
+                return
+
+            if self.save_raw_danmaku and self.record_raw_danmaku_during_waiting:
+                self._raw_danmaku_receiver.start()
+                await self._raw_danmaku_dumper.start_waiting()
+            else:
+                await self._raw_danmaku_dumper.stop_waiting()
+                self._raw_danmaku_receiver.stop()
 
     def _print_waiting_message(self) -> None:
         self._logger.info('Waiting... until the live starts')

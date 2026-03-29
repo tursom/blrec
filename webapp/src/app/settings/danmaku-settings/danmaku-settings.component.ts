@@ -44,6 +44,7 @@ export class DanmakuSettingsComponent implements OnInit, OnChanges {
       recordGuardBuy: [''],
       recordSuperChat: [''],
       saveRawDanmaku: [''],
+      recordRawDanmakuDuringWaiting: [''],
     });
   }
 
@@ -69,6 +70,10 @@ export class DanmakuSettingsComponent implements OnInit, OnChanges {
 
   get saveRawDanmakuControl() {
     return this.settingsForm.get('saveRawDanmaku') as FormControl;
+  }
+
+  get recordRawDanmakuDuringWaitingControl() {
+    return this.settingsForm.get('recordRawDanmakuDuringWaiting') as FormControl;
   }
 
   ngOnChanges(): void {

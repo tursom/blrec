@@ -99,4 +99,37 @@
       <nz-switch formControlName="saveRawDanmaku"></nz-switch>
     </nz-form-control>
   </nz-form-item>
+  <nz-form-item class="setting-item" appSwitchActionable>
+    <nz-form-label
+      class="setting-label"
+      nzNoColon
+      [nzTooltipTitle]="recordRawDanmakuDuringWaitingTip"
+      >待播时持续记录原始弹幕</nz-form-label
+    >
+    <ng-template #recordRawDanmakuDuringWaitingTip>
+      <p>
+        只影响原始弹幕 JSONL。
+        <br />
+        需要先开启保存原始弹幕。
+        <br />
+        主播开播时会结束 waiting 文件，直播阶段仍按视频文件切段。
+        <br />
+        如果任务正在直播中，修改将在下一次切段或下次待播阶段生效。
+      </p>
+    </ng-template>
+    <nz-form-control
+      class="setting-control switch"
+      [nzWarningTip]="syncFailedWarningTip"
+      [nzValidateStatus]="
+        syncStatus.recordRawDanmakuDuringWaiting
+          ? recordRawDanmakuDuringWaitingControl
+          : 'warning'
+      "
+    >
+      <nz-switch
+        formControlName="recordRawDanmakuDuringWaiting"
+        [nzDisabled]="!saveRawDanmakuControl.value"
+      ></nz-switch>
+    </nz-form-control>
+  </nz-form-item>
 </form>

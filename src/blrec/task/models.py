@@ -64,6 +64,7 @@ class TaskParam:
     record_guard_buy: bool
     record_super_chat: bool
     save_raw_danmaku: bool
+    record_raw_danmaku_during_waiting: bool
     # RecorderSettings
     stream_format: StreamFormat
     recording_mode: RecordingMode

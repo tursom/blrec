@@ -28,7 +28,7 @@
 
 ## 前提条件
 
-    Python 3.8+
+    Python 3.11+
     ffmpeg、 ffprobe
 
 ## 安装
@@ -213,19 +213,27 @@ api key 可以使用数字和字母，长度限制为最短 8 最长 80。
 
     `source .venv/bin/activate`
 
-5. 以可编辑方式安装
+5. 安装或升级构建工具
 
-    `pip install -e .[dev]`
+    `python -m pip install -U pip setuptools wheel`
 
-6. 修改代码
+6. 以可编辑方式安装
+
+    `pip install -e ".[dev]"`
+
+    如果构建依赖解析失败（常见于私有镜像或受限网络环境），可以改用：
+
+    `pip install -e ".[dev]" --no-build-isolation`
+
+7. 修改代码
 
     ……
 
-7. 运行 blrec
+8. 运行 blrec
 
     `blrec`
 
-8. 退出虚拟环境
+9. 退出虚拟环境
 
     `deactivate`
 

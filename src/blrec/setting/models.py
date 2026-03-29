@@ -143,6 +143,7 @@ class DanmakuOptions(BaseModel):
     record_guard_buy: Optional[bool]
     record_super_chat: Optional[bool]
     save_raw_danmaku: Optional[bool]
+    record_raw_danmaku_during_waiting: Optional[bool]
 
 
 class DanmakuSettings(DanmakuOptions):
@@ -152,6 +153,7 @@ class DanmakuSettings(DanmakuOptions):
     record_guard_buy: bool = True
     record_super_chat: bool = True
     save_raw_danmaku: bool = False
+    record_raw_danmaku_during_waiting: bool = False
 
 
 class RecorderOptions(BaseModel):

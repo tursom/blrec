@@ -316,6 +316,9 @@ class RecordTaskManager:
         task.record_guard_buy = settings.record_guard_buy
         task.record_super_chat = settings.record_super_chat
         task.save_raw_danmaku = settings.save_raw_danmaku
+        task.record_raw_danmaku_during_waiting = (
+            settings.record_raw_danmaku_during_waiting
+        )
 
     def apply_task_recorder_settings(
         self, room_id: int, settings: RecorderSettings
@@ -368,6 +371,9 @@ class RecordTaskManager:
             save_cover=task.save_cover,
             cover_save_strategy=task.cover_save_strategy,
             save_raw_danmaku=task.save_raw_danmaku,
+            record_raw_danmaku_during_waiting=(
+                task.record_raw_danmaku_during_waiting
+            ),
             stream_format=task.stream_format,
             recording_mode=task.recording_mode,
             quality_number=task.quality_number,

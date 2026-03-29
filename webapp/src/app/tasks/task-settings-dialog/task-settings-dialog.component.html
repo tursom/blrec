@@ -574,6 +574,45 @@
             >覆盖全局设置</label
           >
         </nz-form-item>
+        <nz-form-item class="setting-item">
+          <nz-form-label
+            class="setting-label"
+            nzFor="recordRawDanmakuDuringWaiting"
+            nzNoColon
+            [nzTooltipTitle]="recordRawDanmakuDuringWaitingTip"
+            >待播时持续记录原始弹幕</nz-form-label
+          >
+          <ng-template #recordRawDanmakuDuringWaitingTip>
+            <p>
+              只影响原始弹幕 JSONL，需要先开启保存原始弹幕。
+              <br />
+              主播开播时会结束 waiting 文件，直播阶段仍按视频文件切段。
+              <br />
+              如果任务正在直播中，修改将在下一次切段或下次待播阶段生效。
+            </p>
+          </ng-template>
+          <nz-form-control class="setting-control switch">
+            <nz-switch
+              id="recordRawDanmakuDuringWaiting"
+              name="recordRawDanmakuDuringWaiting"
+              [(ngModel)]="model.danmaku.recordRawDanmakuDuringWaiting"
+              [disabled]="
+                options.danmaku.recordRawDanmakuDuringWaiting === null ||
+                !model.danmaku.saveRawDanmaku
+              "
+            ></nz-switch>
+          </nz-form-control>
+          <label
+            nz-checkbox
+            [nzChecked]="options.danmaku.recordRawDanmakuDuringWaiting !== null"
+            (nzCheckedChange)="
+              options.danmaku.recordRawDanmakuDuringWaiting = $event
+                ? globalSettings.danmaku.recordRawDanmakuDuringWaiting
+                : null
+            "
+            >覆盖全局设置</label
+          >
+        </nz-form-item>
       </div>
 
       <div ngModelGroup="postprocessing" class="form-group postprocessing">

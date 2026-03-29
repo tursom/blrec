@@ -21,7 +21,7 @@ from .exceptions import (
 )
 from .helpers import extract_codecs, extract_formats, extract_streams
 from .models import LiveStatus, RoomInfo, UserInfo
-from .net import connector, timeout
+from .net import create_connector, timeout
 from .typing import ApiPlatform, QualityNumber, ResponseData, StreamCodec, StreamFormat
 
 __all__ = ('Live',)
@@ -46,8 +46,7 @@ class Live:
         self._html_page_url = f'https://live.bilibili.com/{room_id}'
 
         self._session = aiohttp.ClientSession(
-            connector=connector,
-            connector_owner=False,
+            connector=create_connector(),
             raise_for_status=True,
             trust_env=True,
             timeout=timeout,

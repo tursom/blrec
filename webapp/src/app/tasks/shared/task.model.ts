@@ -115,6 +115,7 @@ export interface TaskParam {
   readonly record_guard_buy: boolean;
   readonly record_super_chat: boolean;
   readonly save_raw_danmaku: boolean;
+  readonly record_raw_danmaku_during_waiting: boolean;
 
   readonly stream_format: StreamFormat;
   readonly recording_mode: RecordingMode;
