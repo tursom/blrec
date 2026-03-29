@@ -48,8 +48,7 @@
 
     下载
 
-    - Releases: https://github.com/acgnhiki/blrec/releases
-    - 网盘: https://gooyie.lanzoui.com/b01om2zte  密码: 2233
+    - Releases: https://github.com/tursom/blrec/releases
 
 ## 更新
 
@@ -86,14 +85,14 @@
 
 ### 默认参数运行
 
-`sudo docker run -v /etc/blrec:/cfg -v /var/log/blrec:/log -v ~/blrec:/rec -dp 2233:2233 acgnhiki/blrec`
+`sudo docker run -v /etc/blrec:/cfg -v /var/log/blrec:/log -v ~/blrec:/rec -dp 2233:2233 tursom/blrec`
 
 ### 命令行参数用法
 
 ```bash
 sudo docker run \
     -v /etc/blrec:/cfg -v /var/log/blrec:/log -v ~/blrec:/rec \
-    -dp 2233:2233 acgnhiki/blrec \
+    -dp 2233:2233 tursom/blrec \
     -c /cfg/another_settings.toml \
     --key-file path/to/key-file \
     --cert-file path/to/cert-file \
@@ -199,7 +198,7 @@ api key 可以使用数字和字母，长度限制为最短 8 最长 80。
 
 1. 克隆代码
 
-    `git clone https://github.com/acgnhiki/blrec.git`
+    `git clone https://github.com/tursom/blrec.git`
 
 2. 进入项目目录
 
@@ -255,5 +254,5 @@ api key 可以使用数字和字母，长度限制为最短 8 最长 80。
 | --- | --- | --- |
 | 录播姬 | [官网](https://rec.danmuji.org/) | 简单易用成熟稳定的 B 站直播录制工具 |
 | rclone | [官网](https://rclone.org/) | 可以挂载网盘用于存放录播文件 |
-| alist | [官网](https://alist-doc.nn.ci/) | 网盘文件浏览、播放 |
+| openlist | [官网](https://github.com/OpenListTeam/OpenList/) | 网盘文件浏览、播放 |
 | filebrowser | [官网](https://filebrowser.org/) | 服务器文件管理 |
