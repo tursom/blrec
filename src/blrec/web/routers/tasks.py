@@ -28,6 +28,7 @@ async def get_task_data(
     size: conint(ge=10, le=100) = 100,  # type: ignore
     filter: TaskDataFilter = Depends(task_data_filter),
 ) -> List[Dict[str, Any]]:
+    # filter 返回惰性迭代器，分页时无需先物化全部房间状态。
     start = (page - 1) * size
     stop = page * size
 
@@ -143,6 +144,7 @@ async def stop_all_tasks(
     background: bool = Body(False),
 ) -> ResponseMessage:
     if background:
+        # 长时间停止操作交给 FastAPI background task，先向客户端返回 202。
         background_tasks.add_task(app.stop_all_tasks, force)
         return ResponseMessage(message='Stopping all tasks on the background')
 
@@ -166,6 +168,7 @@ async def stop_task(
         raise NotFoundError(f'No task for the room {room_id}')
 
     if background:
+        # 后台执行仍使用同一个 Application，任务存在性必须在响应前检查。
         background_tasks.add_task(app.stop_task, room_id, force)
         return ResponseMessage(message='Stopping the task on the background')
 

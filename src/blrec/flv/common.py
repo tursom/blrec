@@ -1,3 +1,5 @@
+"""FLV tag 分类、查找、ScriptData 转换和元数据维护辅助。"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, Union
@@ -259,10 +261,8 @@ def update_metadata(
 
 
 def ensure_order(metadata: Dict[str, Any]) -> Dict[str, Any]:
-    # the order of metadata property matters!!!
-    # some typical properties such as 'keyframes' must be before some custom
-    # properties such as 'Comment' otherwise, it won't take effect in some
-    # players!
+    # AMF 对象虽然按键访问，但部分播放器依赖传统字段顺序；keyframes 等标准字段
+    # 必须位于 Comment 等扩展字段之前，否则拖动定位可能失效。
     from .operators import MetaData
 
     typical_props = attr.fields_dict(MetaData).keys()

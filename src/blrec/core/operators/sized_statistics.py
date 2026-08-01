@@ -1,3 +1,5 @@
+"""按对象 ``len`` 统计标签/分片数量对应的字节总量和吞吐率。"""
+
 from __future__ import annotations
 
 from typing import Optional, Sized
@@ -10,6 +12,8 @@ __all__ = ('SizedStatistics',)
 
 
 class SizedStatistics:
+    """透明旁路统计；流完成时冻结耗时，使最终速率不再随空闲时间下降。"""
+
     def __init__(self) -> None:
         self._statistics = Statistics()
 

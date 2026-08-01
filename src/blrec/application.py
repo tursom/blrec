@@ -1,3 +1,9 @@
+"""进程级应用装配与对外用例门面。
+
+Web 层通过 :class:`Application` 操作任务和设置，而不直接持有录制、通知或
+磁盘治理组件。这里同时规定这些长期运行组件的创建、启动和销毁顺序。
+"""
+
 import asyncio
 import os
 from contextlib import suppress
@@ -54,6 +60,8 @@ class AppStatus:
 
 
 class Application:
+    """协调设置、房间任务以及应用级后台服务的生命周期。"""
+
     def __init__(self, settings: Settings) -> None:
         self._out_dir = settings.output.out_dir
         self._settings_manager = SettingsManager(self, settings)
@@ -98,11 +106,14 @@ class Application:
             await self.exit()
 
     async def launch(self) -> None:
+        """装配应用级服务，并在后台恢复配置文件中的全部房间任务。"""
+
         self._setup_logger()
         logger.info('Launching Application...')
         self._setup()
         logger.debug(f'Default umask {os.umask(0o000)}')
         logger.info(f'Launched Application v{__version__}')
+        # 加载任务可能包含网络请求，不能阻塞 FastAPI 完成 startup。
         self._loading_task = asyncio.create_task(self._task_manager.load_all_tasks())
 
         def callback(future: asyncio.Future) -> None:  # type: ignore
@@ -122,6 +133,7 @@ class Application:
         logger.info('Aborted Application')
 
     async def _exit(self, force: bool = False) -> None:
+        # 先等待加载协程真正退出，避免它在销毁阶段继续向 manager 注册任务。
         if hasattr(self, '_loading_task'):
             self._loading_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -140,6 +152,7 @@ class Application:
         return self._task_manager.has_task(room_id)
 
     async def add_task(self, room_id: int) -> int:
+        # 短房间号只用于录入；内存索引和持久化配置始终使用真实房间号。
         room_id = await ensure_room_id(room_id)
 
         if self._task_manager.has_task(room_id):
@@ -295,6 +308,7 @@ class Application:
         return await self._settings_manager.change_task_options(room_id, options)
 
     def _setup(self) -> None:
+        # 设置管理器的 apply_* 方法依赖这些属性已经挂到 Application 上。
         self._setup_exception_handler()
         self._setup_space_monitor()
         self._setup_space_event_submitter()
@@ -342,6 +356,7 @@ class Application:
         self._webhook_emitter.enable()
 
     def _destroy(self) -> None:
+        # 先停空间回收链路，再停通知/Webhook 消费者，最后解除异常处理器。
         self._destroy_space_reclaimer()
         self._destroy_space_event_submitter()
         self._destroy_space_monitor()

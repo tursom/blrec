@@ -1,3 +1,5 @@
+"""从重复刷新的 HLS playlist 中提取尚未处理的连续分片。"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -50,6 +52,7 @@ class PlaylistResolver:
                     logger.debug('Playlist ended')
 
                 if playlist.media_sequence < self._last_media_sequence:
+                    # media sequence 回退代表服务端重置清单，后续首片必须标记 discontinuity。
                     logger.warning(
                         'Segments discontinuous: '
                         f'last media sequence: {self._last_media_sequence}, '
@@ -63,6 +66,7 @@ class PlaylistResolver:
                 for seg in playlist.segments:
                     num = sequence_number_of(seg.uri)
                     if self._last_sequence_number is not None:
+                        # 已输出分片按 URI 中的序号去重，同时检测中间缺口。
                         if num <= self._last_sequence_number:
                             continue
                         if num == self._last_sequence_number + 1:

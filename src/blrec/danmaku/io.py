@@ -1,3 +1,5 @@
+"""Bilibili XML 弹幕文件的异步读取、流式写入与字符清理。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +26,8 @@ __all__ = 'DanmakuReader', 'DanmakuWriter'
 
 
 class DanmakuReader:  # TODO rewrite
+    """在线程池中解析 XML 树，再以异步接口暴露元数据和弹幕。"""
+
     def __init__(self, path: str) -> None:
         self._path = path
 
@@ -88,6 +92,8 @@ class DanmakuReader:  # TODO rewrite
 
 
 class DanmakuWriter:
+    """逐条写 XML，退出上下文时补齐根元素闭合标签。"""
+
     _XML_HEAD: Final[
         str
     ] = """\
@@ -170,8 +176,7 @@ class DanmakuWriter:
         try:
             elem = etree.Element('d', attrib=attrib)
         except ValueError:
-            # ValueError: All strings must be XML compatible: Unicode or ASCII,
-            # no NULL bytes or control characters
+            # lxml 拒绝 NULL 和 XML 不允许的控制字符，仅清理受影响字段后重试。
             attrib['user'] = remove_control_characters(dm.uname)
             elem = etree.Element('d', attrib=attrib)
 

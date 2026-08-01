@@ -1,3 +1,5 @@
+"""FLV/HLS 录制实现共享的线程、统计、事件和停止协议。"""
+
 import io
 import logging
 from abc import ABC, abstractmethod
@@ -61,6 +63,8 @@ class StreamRecorderImpl(
     AsyncStoppableMixin,
     ABC,
 ):
+    """管理一条在线程调度器中运行的 Rx 录制管线。"""
+
     def __init__(
         self,
         live: Live,
@@ -303,8 +307,10 @@ class StreamRecorderImpl(
     async def _do_stop(self) -> None:
         self._logger.debug('Stopping stream recorder...')
         self._stream_param_holder.cancel()
+        # dispose 可能触发同步收尾 I/O，放到专用线程以免阻塞 asyncio。
         thread = self._thread_factory('StreamRecorderDisposer')(self._dispose)
         thread.start()
+        # join 设置上限，防止异常网络/文件操作让应用退出永久挂起。
         for thread in self._threads:
             await self._loop.run_in_executor(None, thread.join, 30)
         self._threads.clear()
@@ -322,6 +328,8 @@ class StreamRecorderImpl(
         raise NotImplementedError()
 
     def _thread_factory(self, name: str) -> StartableFactory:
+        """创建带房间日志上下文的 daemon 线程，并登记以便停止时回收。"""
+
         def factory(target: StartableTarget) -> Thread:
             def run() -> None:
                 with logger.contextualize(room_id=self._live.room_id):
@@ -342,6 +350,7 @@ class StreamRecorderImpl(
         self._on_completed()
 
     def _on_completed(self) -> None:
+        # dispose 与上游自然完成都可能到达此处，事件只能发出一次。
         if self._completed:
             return
         self._completed = True
@@ -384,4 +393,5 @@ class StreamRecorderImpl(
         self._emit_event('duration_lost', duration)
 
     def _emit_event(self, name: str, *args: Any, **kwds: Any) -> None:
+        # Rx 回调运行在线程中，通过合作 mixin 安全地回到主事件循环发事件。
         self._call_coroutine(self._emit(name, *args, **kwds))

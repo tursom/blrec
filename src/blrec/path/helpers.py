@@ -1,3 +1,5 @@
+"""录播视频与各类伴随文件之间的确定性路径映射。"""
+
 import os
 import re
 from pathlib import PurePath
@@ -59,4 +61,5 @@ def ffmpeg_metadata_path(video_path: str) -> str:
 
 
 def escape_path(path: str) -> str:
+    # 同时移除 Windows 禁止字符，使同一模板在各平台生成兼容路径。
     return re.sub(r'[\\/:*?"<>|]', '', path)

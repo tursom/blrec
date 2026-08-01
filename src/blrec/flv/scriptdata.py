@@ -1,3 +1,5 @@
+"""FLV ScriptData 的 AMF0 名称和值编码适配层。"""
+
 from io import BytesIO
 from typing import Any, BinaryIO, Mapping, TypedDict
 
@@ -22,6 +24,8 @@ class ScriptData(TypedDict):
 
 
 class ScriptDataParser:
+    """读取一个 AMF 名称和值；缺失或非法的 onMetaData 值降级为空对象。"""
+
     def __init__(self, stream: BinaryIO) -> None:
         self._reader = AMFReader(stream)
 
@@ -50,6 +54,8 @@ class ScriptDataParser:
 
 
 class ScriptDataDumper:
+    """按 FLV ScriptData 规定的“事件名在前、对象值在后”顺序写入。"""
+
     def __init__(self, stream: BinaryIO) -> None:
         self._writer = AMFWriter(stream)
 

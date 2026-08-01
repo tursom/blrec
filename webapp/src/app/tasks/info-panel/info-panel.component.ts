@@ -25,6 +25,7 @@ import { StreamProfile } from '../shared/task.model';
   styleUrls: ['./info-panel.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+/** 在面板可见期间轮询当前录制流的 ffprobe 信息与 FLV 元数据。 */
 export class InfoPanelComponent implements OnInit, OnDestroy {
   @Input() data!: TaskData;
   @Input() profile!: StreamProfile;
@@ -77,6 +78,7 @@ export class InfoPanelComponent implements OnInit, OnDestroy {
   }
 
   private syncData(): void {
+    // 立即请求一次，之后每秒刷新；慢请求会被 switchMap 取消，防止旧快照覆盖新快照。
     this.dataSubscription = of(of(0), interval(1000))
       .pipe(
         concatAll(),
@@ -108,6 +110,7 @@ export class InfoPanelComponent implements OnInit, OnDestroy {
       );
   }
   private desyncData(): void {
+    // 取消订阅会同时停止 interval 和正在进行的组合 HTTP 请求。
     this.dataSubscription?.unsubscribe();
   }
 }

@@ -1,3 +1,5 @@
+"""fMP4/HLS 播放列表、分片下载、切分和落盘的 Rx 管线装配。"""
+
 from typing import Optional
 
 from loguru import logger
@@ -17,6 +19,8 @@ __all__ = ('HLSStreamRecorderImpl',)
 
 
 class HLSStreamRecorderImpl(StreamRecorderImpl):
+    """持续刷新播放列表，下载新增分片并维护本地 FFmpeg playlist。"""
+
     def __init__(
         self,
         live: Live,
@@ -120,6 +124,7 @@ class HLSStreamRecorderImpl(StreamRecorderImpl):
         self._ff_metadata_dumper.disable()
 
     def _run(self) -> None:
+        # 分片网络 I/O 转移到有界队列线程，防止慢 CDN 阻塞 playlist 刷新。
         with logger.contextualize(room_id=self._live.room_id):
             self._subscription = (
                 self._stream_param_holder.get_stream_params()  # type: ignore

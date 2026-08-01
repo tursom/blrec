@@ -1,3 +1,5 @@
+"""把结构化弹幕消息与视频时间轴对齐并写入 XML。"""
+
 import asyncio
 import html
 from contextlib import suppress
@@ -46,6 +48,8 @@ class DanmakuDumper(
     StreamRecorderEventListener,
     SwitchableMixin,
 ):
+    """监听视频文件边界，为每个视频片段创建对应的弹幕文件。"""
+
     def __init__(
         self,
         live: Live,
@@ -120,6 +124,7 @@ class DanmakuDumper(
     async def on_video_file_created(
         self, video_path: str, record_start_time: int
     ) -> None:
+        # 文件切片事件可能来自录制线程，锁保证旧 writer 关闭后才创建新 writer。
         with self._lock:
             self._delta: float = 0
             self._record_start_time: int = record_start_time
@@ -147,6 +152,7 @@ class DanmakuDumper(
 
     async def on_stream_recording_recovered(self, timestamp: float) -> None:
         self._recovered_timestamp = timestamp
+        # 从弹幕墙钟时间中扣除断流区间，使 stime 继续贴合实际视频时长。
         self._delta += -float(
             Decimal(str(self._recovered_timestamp))
             - Decimal(str(self._interrupted_timestamp))
@@ -189,6 +195,7 @@ class DanmakuDumper(
                 await self._emit('danmaku_file_created', self._path)
                 await writer.write_metadata(self._make_metadata())
 
+                # writer 的瞬时异常最多重试三次；取消属于正常收尾，不能被重试吞掉。
                 async for attempt in AsyncRetrying(
                     retry=retry_if_not_exception_type((asyncio.CancelledError)),
                     stop=stop_after_attempt(3),
@@ -310,7 +317,10 @@ class DanmakuDumper(
         )
 
     def _calc_stime(self, timestamp: float) -> float:
+        """把 Unix 秒转换为当前视频片段内的秒，并扣除累计断流时长。"""
+
         if self._stream_recording_interrupted:
+            # 断流期间到达的弹幕固定在最后一个有效视频时间点。
             return self._duration
         else:
             return (

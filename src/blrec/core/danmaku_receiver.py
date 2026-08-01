@@ -1,3 +1,5 @@
+"""把原始弹幕命令筛选并转换成结构化录制消息。"""
+
 from asyncio import Queue, QueueFull
 from typing import Final
 
@@ -15,6 +17,8 @@ __all__ = ('DanmakuReceiver',)
 
 
 class DanmakuReceiver(DanmakuListener, StoppableMixin):
+    """以有界队列隔离 WebSocket 接收速度与磁盘写入速度。"""
+
     _MAX_QUEUE_SIZE: Final[int] = 2000
 
     def __init__(self, live: Live, danmaku_client: DanmakuClient) -> None:
@@ -55,7 +59,8 @@ class DanmakuReceiver(DanmakuListener, StoppableMixin):
         try:
             self._queue.put_nowait(msg)
         except QueueFull:
-            self._queue.get_nowait()  # discard the first item
+            # 实时录制优先保留最新消息；积压时丢弃最旧项，避免无限占用内存。
+            self._queue.get_nowait()
             self._queue.put_nowait(msg)
 
     def _clear_queue(self) -> None:

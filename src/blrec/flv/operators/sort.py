@@ -1,3 +1,5 @@
+"""按 GOP 重排 FLV 音视频标签，建立后续切割和修复依赖的时序。"""
+
 from typing import Callable, List, Optional
 
 from loguru import logger
@@ -21,7 +23,7 @@ __all__ = ('sort',)
 
 
 def sort() -> Callable[[FLVStream], FLVStream]:
-    "Sort tags in GOP by timestamp to ensure subsequent operators work as expected."
+    """按时间戳输出每个 GOP，并保持脚本标签位于音视频数据之前。"""
 
     def _sort(source: FLVStream) -> FLVStream:
         def subscribe(
@@ -54,6 +56,7 @@ def sort() -> Callable[[FLVStream], FLVStream]:
                 )
 
                 if len(gop_tags) < 10:
+                    # 很短的块通常只含初始化标签；固定按 metadata、AVC、AAC 顺序输出。
                     avc_header_tag = find_avc_header_tag(gop_tags)
                     aac_header_tag = find_aac_header_tag(gop_tags)
                     if avc_header_tag is not None and aac_header_tag is not None:
@@ -77,6 +80,7 @@ def sort() -> Callable[[FLVStream], FLVStream]:
 
                 sorted_tags: List[FlvTag] = []
                 i = len(audio_tags) - 1
+                # 以视频标签为锚点倒序插入音频，避免全量排序破坏同时间戳标签的稳定顺序。
                 for video_tag in reversed(video_tags):
                     sorted_tags.insert(0, video_tag)
                     while i >= 0 and audio_tags[i].timestamp >= video_tag.timestamp:
@@ -98,6 +102,7 @@ def sort() -> Callable[[FLVStream], FLVStream]:
                     return
 
                 if is_video_nalu_keyframe(item):
+                    # 关键帧是新 GOP 的边界；先完整释放上一组，再缓存当前关键帧。
                     push_gop_tags()
                     gop_tags.append(item)
                 else:

@@ -1,3 +1,5 @@
+"""单个直播间的业务聚合与录制生命周期。"""
+
 import os
 from contextlib import suppress
 from pathlib import PurePath
@@ -35,6 +37,12 @@ __all__ = ('RecordTask',)
 
 
 class RecordTask:
+    """组合直播信息、弹幕连接、监控、录制器和后处理器。
+
+    monitor 负责发现直播状态并维持弹幕连接，recorder 负责实际录制；两者可独立
+    启停，因此任务状态不能简化为一个布尔值。
+    """
+
     def __init__(
         self,
         room_id: int,
@@ -78,6 +86,7 @@ class RecordTask:
 
     @property
     def running_status(self) -> RunningStatus:
+        # 状态按用户最关心的活动优先级折叠：录制/后处理优先于等待状态。
         if not self._monitor_enabled and not self._recorder_enabled:
             return RunningStatus.STOPPED
         elif self._recorder.recording:
@@ -122,6 +131,8 @@ class RecordTask:
 
     @property
     def video_file_details(self) -> Iterator[VideoFileDetail]:
+        """合并录制器、后处理器和文件系统视图，生成前端展示状态。"""
+
         recording_paths = set(self._recorder.get_recording_files())
         completed_paths = set(self._postprocessor.get_completed_files())
 
@@ -157,13 +168,15 @@ class RecordTask:
                     else:
                         status = VideoFileStatus.INJECTING
             else:
-                # disabling recorder by force or stoping task by force
+                # 强制停止可能留下既未完成也未继续写入的文件，无法安全推断其状态。
                 status = VideoFileStatus.UNKNOWN
 
             yield VideoFileDetail(path=path, size=size, status=status)
 
     @property
     def danmaku_file_details(self) -> Iterator[DanmakuFileDetail]:
+        """根据当前写入集合和已完成集合推导弹幕文件状态。"""
+
         recording_paths = set(self._recorder.get_recording_files())
         completed_paths = set(self._postprocessor.get_completed_files())
 
@@ -188,7 +201,7 @@ class RecordTask:
             elif path in recording_paths:
                 status = DanmukuFileStatus.RECORDING
             else:
-                # disabling recorder by force or stoping task by force
+                # 强制停止时 dumper 来不及发出 completed 事件，保留为未知状态。
                 status = DanmukuFileStatus.UNKNOWN
 
             yield DanmakuFileDetail(path=path, size=size, status=status)
@@ -448,11 +461,15 @@ class RecordTask:
         return self._recorder.cut_stream()
 
     async def setup(self) -> None:
+        """初始化共享 Live 会话并装配房间内各协作组件。"""
+
         await self._live.init()
         await self._setup()
         self._ready = True
 
     async def destroy(self) -> None:
+        """按依赖反序拆除组件，最后关闭共享 Live 会话。"""
+
         await self._destroy()
         await self._live.deinit()
         self._ready = False
@@ -462,6 +479,7 @@ class RecordTask:
             return
         self._monitor_enabled = True
 
+        # LiveMonitor 的事件来自弹幕连接，所以连接必须先于 monitor 启用。
         await self._danmaku_client.start()
         self._live_monitor.enable()
 
@@ -470,6 +488,7 @@ class RecordTask:
             return
         self._monitor_enabled = False
 
+        # 先停止消费事件，再关闭其事件源，避免关闭期间触发新的状态变更。
         self._live_monitor.disable()
         await self._danmaku_client.stop()
 
@@ -478,18 +497,23 @@ class RecordTask:
             return
         self._recorder_enabled = True
 
+        # 后处理消费者必须先就绪，才能接住 recorder 随后产生的完成事件。
         await self._postprocessor.start()
         await self._recorder.start()
 
     async def disable_recorder(self, force: bool = False) -> None:
+        """停止录制链路；非强制模式会先让 recorder 产出完整结束事件。"""
+
         if not self._recorder_enabled:
             return
         self._recorder_enabled = False
 
         if force:
+            # 先解绑并排空已接收的后处理队列；随后强停 recorder 的文件不再入队。
             await self._postprocessor.stop()
             await self._recorder.stop()
         else:
+            # 正常模式先封口录制文件，再让 postprocessor 排空队列。
             await self._recorder.stop()
             await self._postprocessor.stop()
 
@@ -550,6 +574,7 @@ class RecordTask:
         )
 
     async def _destroy(self) -> None:
+        # submitter 持有被观察对象的订阅，必须在对应组件之前释放。
         self._destroy_postprocessor_event_submitter()
         self._destroy_postprocessor()
         self._destroy_recorder_event_submitter()

@@ -1,3 +1,5 @@
+"""用于离线 FLV 操作的通用字节进度条。"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -12,6 +14,8 @@ __all__ = ('ProgressBar',)
 
 
 class ProgressBar:
+    """透明累计标签大小，完成和取消两条路径都负责关闭 tqdm。"""
+
     def __init__(
         self,
         desc: str,

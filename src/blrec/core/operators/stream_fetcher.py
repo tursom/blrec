@@ -1,3 +1,5 @@
+"""把解析出的直播流 URL 转换为 requests 流式响应。"""
+
 from __future__ import annotations
 
 import io
@@ -14,6 +16,8 @@ __all__ = ('StreamFetcher',)
 
 
 class StreamFetcher(AsyncCooperationMixin):
+    """在 Rx 调度线程中发起同步请求，把响应体交给后续解析器按需读取。"""
+
     def __init__(
         self,
         live: Live,
@@ -41,6 +45,7 @@ class StreamFetcher(AsyncCooperationMixin):
                         url,
                         stream=True,
                         headers=self._live.headers,
+                        # requests 的单值 timeout 同时约束连接和相邻两次读取等待时间。
                         timeout=self.read_timeout,
                     )
                     logger.info('Response received')

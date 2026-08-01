@@ -1,3 +1,5 @@
+"""带前向/反向遍历和原子写入保护的 FLV 读写接口。"""
+
 from io import SEEK_CUR
 from typing import Iterable, Iterator
 
@@ -11,6 +13,8 @@ __all__ = 'FlvReader', 'FlvWriter'
 
 
 class FlvReader:
+    """校验每个 PreviousTagSize，并可从文件尾部反向读取完整标签。"""
+
     def __init__(
         self,
         stream: RandomIO,
@@ -66,6 +70,7 @@ class FlvReader:
             return self._stream.read(tag.body_size)
 
     def _seek_to_previous_tag(self) -> int:
+        # FLV 的反向链表项位于标签尾部，值为不含该 4 字节字段的 TagSize。
         try:
             self._stream.seek(-BACK_POINTER_SIZE, SEEK_CUR)
         except OSError as e:
@@ -78,6 +83,8 @@ class FlvReader:
 
 
 class FlvWriter:
+    """成对写入标签及 PreviousTagSize，失败时回滚到写入前偏移。"""
+
     def __init__(self, stream: RandomIO) -> None:
         self._stream = stream
         self._dumper = FlvDumper(stream)

@@ -1,3 +1,5 @@
+"""按次数、延迟和异常谓词重新订阅 Rx source。"""
+
 import time
 from typing import Callable, Iterator, Optional, TypeVar
 
@@ -20,6 +22,7 @@ def retry(
             exception: Optional[Exception] = None
 
             def counter() -> Iterator[int]:
+                # catch_with_iterable 每次迭代都会重新订阅 cold observable。
                 n = 0
                 while True:
                     if exception is not None:

@@ -1,3 +1,5 @@
+"""FLV 文件头与 tag 的二进制解析和序列化。"""
+
 from io import SEEK_CUR, BytesIO
 from typing import cast
 
@@ -33,6 +35,8 @@ __all__ = 'FlvParser', 'FlvDumper'
 
 
 class FlvParser:
+    """按 Adobe FLV 布局读取 tag，并可备份/恢复原始时间戳。"""
+
     def __init__(
         self,
         stream: RandomIO,
@@ -57,6 +61,7 @@ class FlvParser:
         return self._reader.read_ui32()
 
     def parse_tag(self, *, no_body: bool = False) -> FlvTag:
+        # offset 指向 tag header；PreviousTagSize 位于该 tag 数据之后。
         offset = self._stream.tell()
         tag_header_data = self._reader.read(TAG_HEADER_SIZE)
         tag_header = self.parse_flv_tag_header(tag_header_data)

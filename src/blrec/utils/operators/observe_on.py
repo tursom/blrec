@@ -1,3 +1,5 @@
+"""通过有界队列把 Rx observer 通知切换到一个专用线程。"""
+
 from queue import Queue
 from threading import Thread, current_thread
 from typing import Any, Callable, Dict, Optional, TypeVar
@@ -21,6 +23,7 @@ def observe_on_new_thread(
         ) -> abc.DisposableBase:
             disposed = False
             subscription = SerialDisposable()
+            # 有界队列提供显式反压：生产者过快时阻塞，而不是无限增长内存。
             queue: Queue[Callable[..., Any]] = Queue(maxsize=queue_size or 0)
 
             def run() -> None:
@@ -43,6 +46,7 @@ def observe_on_new_thread(
             def dispose() -> None:
                 nonlocal disposed
                 disposed = True
+                # 哨兵唤醒可能阻塞在 queue.get 的 worker，再等待线程完整退出。
                 queue.put(lambda: None)
                 if thread is not current_thread():
                     thread.join()

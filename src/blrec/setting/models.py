@@ -1,3 +1,9 @@
+"""持久化设置、PATCH 输入模型与任务级覆盖模型。
+
+完整 ``*Settings`` 模型提供运行所需默认值；``*Options`` 中的 ``None`` 表示任务
+没有覆盖该字段，应继承全局设置，而不是把 ``None`` 传给运行组件。
+"""
+
 from __future__ import annotations
 
 import os
@@ -100,6 +106,8 @@ _V = TypeVar('_V')
 
 
 class BaseModel(PydanticBaseModel):
+    """统一字段别名、赋值校验和字符串清理规则。"""
+
     class Config:
         validate_assignment = True
         anystr_strip_whitespace = True
@@ -254,7 +262,7 @@ class OutputOptions(BaseModel):
 
     @validator('filesize_limit')
     def _validate_filesize_limit(cls, value: Optional[int]) -> Optional[int]:
-        # file size in bytes, 0 indicates not limit。
+        # 单位为字节；0 是“不按文件大小切分”的哨兵值。
         if value is not None:
             if not (0 <= value <= 1073731086581):  # 1073731086581(999.99 GB)
                 raise ValueError(
@@ -264,7 +272,7 @@ class OutputOptions(BaseModel):
 
     @validator('duration_limit')
     def _validate_duration_limit(cls, value: Optional[int]) -> Optional[int]:
-        # duration in seconds, 0 indicates not limit。
+        # 单位为秒；0 是“不按录制时长切分”的哨兵值。
         if value is not None:
             if not (0 <= value <= 359999):  # 359999(99:59:59)
                 raise ValueError(
@@ -312,7 +320,7 @@ class TaskOptions(BaseModel):
 
 
 class TaskSettings(TaskOptions):
-    # must use the real room id rather than the short room id!
+    # 配置和内存索引必须使用真实房间号，短房间号只允许出现在新增任务请求中。
     room_id: Annotated[int, Field(ge=1, lt=2**100)]
     enable_monitor: bool = True
     enable_recorder: bool = True
@@ -634,6 +642,8 @@ class WebHookSettings(WebHookEventSettings):
 
 
 class Settings(BaseModel):
+    """与 settings.toml 一一对应的完整应用配置。"""
+
     _MAX_TASKS: ClassVar[int] = 100
     _MAX_WEBHOOKS: ClassVar[int] = 50
 
@@ -666,6 +676,7 @@ class Settings(BaseModel):
         return settings
 
     def update_from_env_settings(self, env_settings: EnvSettings) -> None:
+        # 环境值先覆盖内存模型；应用常规退出执行 dump 时会连同当前设置写回 TOML。
         if (out_dir := env_settings.out_dir) is not None:
             self.output.out_dir = out_dir
         if (log_dir := env_settings.log_dir) is not None:

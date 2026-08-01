@@ -1,3 +1,5 @@
+"""FLV 协议枚举、文件头和音视频 tag 的不可变数据表示。"""
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import IntEnum
@@ -151,6 +153,8 @@ _T = TypeVar('_T', bound='FlvTag')
 
 @attr.s(auto_attribs=True, slots=True, frozen=True, kw_only=True)
 class FlvTag(ABC, FlvTagHeader):
+    """同时保留文件偏移、协议头、body 和可选的原始时间戳。"""
+
     offset: int = attr.ib(validator=[non_negative_integer_validator])
     body: bytes = attr.ib(default=b'', repr=cksum)
 

@@ -1,3 +1,5 @@
+"""直播间信息、播放流发现以及多级数据源回退。"""
+
 import asyncio
 import json
 import re
@@ -36,6 +38,8 @@ _LIVE_STATUS_PATTERN = re.compile(rb'"live_status"\s*:\s*(\d)')
 
 
 class Live:
+    """封装单个直播间共享的 HTTP 会话、API 客户端和信息快照。"""
+
     def __init__(self, room_id: int, user_agent: str = '', cookie: str = '') -> None:
         self._logger = logger.bind(room_id=room_id)
 
@@ -147,6 +151,8 @@ class Live:
         return self._user_info
 
     async def init(self) -> None:
+        """加载房间与主播信息，并探测当前直播是否缺少 FLV 流。"""
+
         self._room_info = await self.get_room_info()
         self._user_info = await self.get_user_info(self._room_info.uid)
 
@@ -165,10 +171,10 @@ class Live:
 
     async def get_live_status(self) -> LiveStatus:
         try:
-            # frequent requests will be intercepted by the server's firewall!
+            # API 成本较低，但高频访问更容易触发服务端风控。
             live_status = await self._get_live_status_via_api()
         except Exception:
-            # more cpu consumption
+            # 页面解析更耗 CPU，仅作为 API 失败时的兼容回退。
             live_status = await self._get_live_status_via_html_page()
 
         return LiveStatus(live_status)
@@ -244,6 +250,8 @@ class Live:
             return await self._get_user_info_via_html_page()
 
     async def get_timestamp(self) -> int:
+        """优先返回服务端秒级时间戳，网络失败时退回本机时钟。"""
+
         try:
             ts = await self.get_server_timestamp()
         except Exception as e:
@@ -284,6 +292,8 @@ class Live:
         stream_codec: StreamCodec = 'avc',
         select_alternative: bool = False,
     ) -> str:
+        """按格式、编码和画质筛选播放信息，并选择一个 CDN 地址。"""
+
         streams = await self.get_live_streams(qn, api_platform=api_platform)
         if not streams:
             raise NoStreamAvailable(stream_format, stream_codec, qn)
@@ -302,6 +312,7 @@ class Live:
             raise NoStreamQualityAvailable(stream_format, stream_codec, qn)
 
         def sort_by_host(info: Any) -> int:
+            # CDN 顺序来自长期可用性经验；未知 gotcha 节点仍优先于 mcdn/区域节点。
             host = info['host']
             if match := re.search(r'gotcha(\d+)', host):
                 num = match.group(1)
@@ -350,6 +361,7 @@ class Live:
         return int(room_info_data['live_status'])
 
     async def _get_user_info_via_api(self, uid: int) -> UserInfo:
+        # 接口返回结构和风控策略不同，按信息完整度从 Web 到 App 逐级回退。
         try:
             data = await self._webapi.get_info_by_room(self._room_id)
             return UserInfo.from_info_by_room(data)
@@ -410,6 +422,7 @@ class Live:
         async with self._session.get(self._html_page_url) as response:
             data = await response.read()
 
+        # 页面内嵌的初始化 JSON 同时包含 roomInfoRes 与 roomInitRes。
         match = _INFO_PATTERN.search(data)
         if not match:
             raise ValueError('Can not extract info from html page')

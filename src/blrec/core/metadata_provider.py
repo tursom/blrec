@@ -1,3 +1,5 @@
+"""把直播上下文和录制时间点合并为媒体容器的扩展元数据。"""
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -15,6 +17,8 @@ __all__ = ('MetadataProvider',)
 
 
 class MetadataProvider:
+    """保留原始媒体元数据，同时生成面向播放器和后处理器的描述字段。"""
+
     def __init__(self, live: Live, stream_recorder: StreamRecorderImpl) -> None:
         super().__init__()
         self._live = live
@@ -24,6 +28,7 @@ class MetadataProvider:
         return self._make_metadata(original_metadata)
 
     def _make_metadata(self, original_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        # B 站业务时间按 UTC+8 展示，避免部署主机时区改变写入结果。
         tz = timezone(timedelta(hours=8))
         live_start_time = datetime.fromtimestamp(
             self._live.room_info.live_start_time, tz

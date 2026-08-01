@@ -99,6 +99,8 @@ class MetaDataDict:
 
 
 class Analyser:
+    """在 tag 透传过程中累计播放器需要的时长、码率、分辨率和关键帧索引。"""
+
     def __init__(self) -> None:
         self._metadatas: Subject[Optional[MetaData]] = Subject()
         self._duration_updated: Subject[float] = Subject()
@@ -262,6 +264,7 @@ class Analyser:
             def on_next(item: FLVStreamItem) -> None:
                 nonlocal stream_index
                 if isinstance(item, FlvHeader):
+                    # 新 FLV header 表示一个切片边界，先发布上一片段的完整统计。
                     stream_index += 1
                     if stream_index > 0:
                         push_metadata()
@@ -329,6 +332,7 @@ class Analyser:
 
     def _analyse_video_tag(self, tag: VideoTag) -> None:
         if tag.is_keyframe():
+            # 当前标签尚未计入累计大小，因此 fileposition 指向关键帧标签起点。
             self._keyframe_timestamps.append(tag.timestamp)
             self._keyframe_filepositions.append(self.calc_file_size())
             if tag.is_avc_header():

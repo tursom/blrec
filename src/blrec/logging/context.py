@@ -1,3 +1,5 @@
+"""让 asyncio 后台任务继承所属房间的 Loguru 上下文。"""
+
 from functools import wraps
 from typing import Any, Awaitable, Callable, TypeVar
 

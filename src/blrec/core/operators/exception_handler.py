@@ -1,3 +1,5 @@
+"""把录制管线异常分类为可重试错误或终止当前任务的稳定状态。"""
+
 from __future__ import annotations
 
 import errno
@@ -18,6 +20,8 @@ _T = TypeVar('_T')
 
 
 class ExceptionHandler(AsyncCooperationMixin):
+    """提交所有异常；磁盘耗尽和不可访问房间正常完成，其余异常交给 retry。"""
+
     def __call__(self, source: Observable[_T]) -> Observable[_T]:
         return self._handle(source).pipe(utils_ops.retry(delay=1))
 
@@ -33,7 +37,7 @@ class ExceptionHandler(AsyncCooperationMixin):
                 except OSError as e:
                     logger.critical('{}\n{}', repr(exc), format_exception(exc))
                     if e.errno == errno.ENOSPC:
-                        # OSError(28, 'No space left on device')
+                        # 磁盘已满时继续重试只会产生错误风暴，因此结束当前录制流。
                         observer.on_completed()
                     else:
                         observer.on_error(exc)

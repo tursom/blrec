@@ -1,3 +1,5 @@
+"""把直接访问 Angular history 路由的请求重定向到静态入口。"""
+
 import http
 import re
 
@@ -6,6 +8,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 class RouteRedirectMiddleware:
+    """只识别前端拥有的顶层路由，不干扰 API 与 WebSocket 路径。"""
+
     def __init__(self, app: ASGIApp) -> None:
         self._app = app
         self._pattern = re.compile(r'^/(tasks|settings|about)($|/.*$)')

@@ -25,6 +25,7 @@ const REVERSE_STORAGE_KEY = 'app-tasks-reverse';
   styleUrls: ['./tasks.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+/** 维护任务列表的筛选偏好，并在页面可见期间持续同步服务端快照。 */
 export class TasksComponent implements OnInit, OnDestroy {
   loading: boolean = true;
   dataList: TaskData[] = [];
@@ -96,6 +97,7 @@ export class TasksComponent implements OnInit, OnDestroy {
   }
 
   private syncTaskData(): void {
+    // of(0) 触发首次立即加载，随后每秒轮询；switchMap 会取消尚未完成的上一轮请求。
     this.dataSubscription = of(of(0), interval(1000))
       .pipe(
         concatAll(),
@@ -123,6 +125,7 @@ export class TasksComponent implements OnInit, OnDestroy {
   }
 
   private desyncTaskData(): void {
+    // 页面不可见或组件销毁时停止计时器及其当前 HTTP 请求，避免后台持续刷新。
     this.dataSubscription?.unsubscribe();
   }
 }

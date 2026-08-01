@@ -1,3 +1,5 @@
+"""B 站 Web/App HTTP API 适配、签名和多域名容错。"""
+
 import asyncio
 import hashlib
 import time
@@ -30,6 +32,8 @@ BASE_HEADERS: Final = {
 
 
 class BaseApi(ABC):
+    """共享会话与响应校验，并为备用域名提供串行/并行请求策略。"""
+
     def __init__(
         self,
         session: aiohttp.ClientSession,
@@ -84,6 +88,7 @@ class BaseApi(ABC):
     ) -> JsonResponse:
         if not base_urls:
             raise ValueError('No base urls')
+        # 普通接口按配置顺序尝试域名，成功后立即返回，避免重复请求。
         exception = None
         for base_url in base_urls:
             url = base_url + path
@@ -101,6 +106,7 @@ class BaseApi(ABC):
     ) -> List[JsonResponse]:
         if not base_urls:
             raise ValueError('No base urls')
+        # 播放信息需要汇总多个域名的 CDN 结果，因此并发请求并保留全部成功响应。
         urls = [base_url + path for base_url in base_urls]
         aws = (self._get_json_res(url, *args, **kwds) for url in urls)
         results = await asyncio.gather(*aws, return_exceptions=True)
@@ -122,7 +128,8 @@ class BaseApi(ABC):
 
 
 class AppApi(BaseApi):
-    # taken from https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/other/API_sign.md  # noqa
+    # App 签名规则来源：
+    # https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/other/API_sign.md  # noqa
     _appkey = '1d8b6e7d45233436'
     _appsec = '560c52ccd288fed045859ed18bffd973'
 
@@ -244,6 +251,8 @@ class AppApi(BaseApi):
 
 
 class WebApi(BaseApi):
+    """支持 WBI 签名并在签名失效时限频刷新密钥的 Web API 客户端。"""
+
     _wbi_key = wbi.make_key(
         img_key="7cd084941338484aae1ad9425b84077c",
         sub_key="4932caff0ff746eab6f01bf08b70ac45",
@@ -264,6 +273,7 @@ class WebApi(BaseApi):
         try:
             return await super()._get_json_res(url, *args, **kwds)
         except ApiRequestError as e:
+            # -352 通常表示 WBI 风控/签名失败；一分钟内只刷新一次共享密钥。
             if e.code == -352 and time.monotonic() - self.__class__._wbi_key_mtime > 60:
                 await self._update_wbi_key()
             raise

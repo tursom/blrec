@@ -1,3 +1,5 @@
+"""持续拉取 HLS playlist，并把 master playlist 解析到最高带宽变体。"""
+
 from __future__ import annotations
 
 import time
@@ -58,6 +60,7 @@ class PlaylistFetcher(SupportDebugMixin):
                             playlist_debug_file.write(content + '\n')
                         playlist = m3u8.loads(content, uri=url)
                         if playlist.is_variant:
+                            # master playlist 本身不含媒体分片，递归切换到最高带宽子清单。
                             url = self._get_best_quality_url(playlist)
                             logger.debug('Playlist changed to variant playlist')
                             on_next(url)

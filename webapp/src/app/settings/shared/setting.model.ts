@@ -48,9 +48,13 @@ export interface RecorderSettings {
   streamFormat: StreamFormat;
   recordingMode: RecordingMode;
   qualityNumber: QualityNumber;
+  /** 等待 fMP4 流恢复的最长时间，单位秒。 */
   fmp4StreamTimeout: number;
+  /** 单次流读取超时，单位秒。 */
   readTimeout: number;
+  /** 持续无数据达到该秒数后判定连接中断。 */
   disconnectionTimeout: number;
+  /** 媒体读取缓冲区大小，单位字节。 */
   bufferSize: number;
   saveCover: boolean;
   coverSaveStrategy: CoverSaveStrategy;
@@ -97,7 +101,9 @@ export type GlobalTaskSettings = Pick<
 export interface OutputSettings {
   outDir: string;
   pathTemplate: string;
+  /** 单个输出文件的大小上限，单位字节；0 表示不限制。 */
   filesizeLimit: number;
+  /** 单个输出文件的时长上限，单位秒；0 表示不限制。 */
   durationLimit: number;
 }
 
@@ -119,7 +125,9 @@ export interface LoggingSettings {
 }
 
 export interface SpaceSettings {
+  /** 磁盘检查间隔，单位秒；0 表示禁用检查。 */
   checkInterval: number;
+  /** 触发空间不足处理的剩余空间阈值，单位字节。 */
   spaceThreshold: number;
   recycleRecords: boolean;
 }

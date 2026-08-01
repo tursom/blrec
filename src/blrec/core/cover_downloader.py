@@ -1,3 +1,5 @@
+"""在视频片段完成后下载直播封面，并可按内容哈希去重。"""
+
 from enum import Enum
 from threading import Lock
 from typing import Set
@@ -41,6 +43,8 @@ class CoverDownloader(
     StreamRecorderEventListener,
     SwitchableMixin,
 ):
+    """把封面生命周期绑定到视频文件完成事件，而不是直播状态事件。"""
+
     def __init__(
         self,
         live: Live,
@@ -55,6 +59,7 @@ class CoverDownloader(
         self._live = live
         self._stream_recorder = stream_recorder
         self._lock: Lock = Lock()
+        # 去重范围限定为本次 Recorder 启用周期，不跨房间也不扫描历史文件。
         self._sha1_set: Set[str] = set()
         self.save_cover = save_cover
         self.cover_save_strategy = cover_save_strategy

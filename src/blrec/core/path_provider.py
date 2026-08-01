@@ -1,3 +1,5 @@
+"""根据直播信息和服务端时间生成不会覆盖既有文件的输出路径。"""
+
 import os
 import re
 from datetime import datetime
@@ -11,6 +13,8 @@ __all__ = ('PathProvider',)
 
 
 class PathProvider(AsyncCooperationMixin):
+    """在线程侧同步调用 Live 协程，并展开用户配置的路径模板。"""
+
     def __init__(self, live: Live, out_dir: str, path_template: str) -> None:
         super().__init__()
         self._live = live
@@ -53,6 +57,7 @@ class PathProvider(AsyncCooperationMixin):
         return pathname
 
     def _make_unique_path(self, pathname: str) -> str:
+        # 同一秒内重复开录时追加递增后缀，永不覆盖已有录播。
         while os.path.exists(pathname):
             root, ext = os.path.splitext(pathname)
             m = re.search(r'_\((\d+)\)$', root)

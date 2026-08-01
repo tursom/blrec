@@ -1,3 +1,5 @@
+"""把手动切片请求延迟到下一个视频关键帧。"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -21,6 +23,8 @@ __all__ = ('Cutter',)
 
 
 class Cutter:
+    """在切点前缓存容器头、元数据和编解码序列头，供新片段自包含播放。"""
+
     def __init__(self, min_duration: int = 5_000) -> None:
         self._min_duration = min_duration  # milliseconds
         self._reset()
@@ -114,6 +118,7 @@ class Cutter:
         if not self._triggered:
             return
 
+        # 只有关键帧可作为独立视频片段的解码起点。
         if not is_video_nalu_keyframe(tag):
             return
 

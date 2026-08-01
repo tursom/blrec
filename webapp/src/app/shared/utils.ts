@@ -1,7 +1,10 @@
 import { transform, isEqual, isObject } from 'lodash-es';
 import { filesize } from 'filesize';
 
-// ref: https://gist.github.com/Yimiprod/7ee176597fef230d1451
+/**
+ * 返回 object 相对 base 改变的字段；deep 为真时递归保留最小的嵌套 PATCH。
+ * 来源：https://gist.github.com/Yimiprod/7ee176597fef230d1451
+ */
 export function difference(
   object: object,
   base: object,
@@ -29,6 +32,7 @@ export function toBitRateString(
   spacer: string = ' ',
   precision: number = 3
 ): string {
+  // bitrate 的输入单位是 bit/s，展示使用十进制 SI 倍率。
   let num: number;
   let unit: string;
 
@@ -61,6 +65,7 @@ export function toByteRateString(
   spacer: string = ' ',
   precision: number = 3
 ): string {
+  // rate 的输入单位是 byte/s，与网络速率展示约定一致使用十进制倍率。
   let num: number;
   let unit: string;
 
@@ -95,6 +100,7 @@ export function formatDuration(
   totalSeconds: number,
   concise: boolean = false
 ): string {
+  // 时长以秒为单位；NaN、负数和 0 都按零时长展示。
   if (!(totalSeconds > 0)) {
     totalSeconds = 0;
   }
@@ -121,6 +127,7 @@ export function formatDuration(
 }
 
 export function parseDuration(str: string): number | null {
+  // 提取首个 H:MM:SS 或 HH:MM:SS 片段并返回秒数；未找到时返回 null。
   try {
     const [_, hours, minutes, seconds] = /(\d{1,2}):(\d{2}):(\d{2})/.exec(str)!;
     return parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds);
@@ -131,6 +138,7 @@ export function parseDuration(str: string): number | null {
 }
 
 export function formatFilesize(size: number): string {
+  // 文件大小输入为字节，按 JEDEC 的 1024 进制展示 KB/MB/GB。
   return filesize(size, {
     base: 2,
     standard: 'jedec',
@@ -139,6 +147,7 @@ export function formatFilesize(size: number): string {
 }
 
 export function parseFilesize(str: string): number | null {
+  // 与 formatFilesize 对称，返回字节数；null 是非法格式或未知单位的哨兵值。
   try {
     const [_, num, unit] = /^(\d+(?:\.\d+)?)\s*([TGMK]?B)$/.exec(str)!;
     switch (unit) {

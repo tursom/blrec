@@ -1,3 +1,5 @@
+"""丢弃短于阈值、无法形成可用媒体段的 FLV 碎片。"""
+
 from typing import Callable, List, Optional
 
 from loguru import logger
@@ -12,7 +14,7 @@ __all__ = ('defragment',)
 
 def defragment(min_tags: int = 10) -> Callable[[FLVStream], FLVStream]:
     def _defragment(source: FLVStream) -> FLVStream:
-        """Discard fragmented FLV streams."""
+        """缓存每个新流的开头，标签数超过阈值后才整体放行。"""
 
         def subscribe(
             observer: abc.ObserverBase[FLVStreamItem],
@@ -33,6 +35,7 @@ def defragment(min_tags: int = 10) -> Callable[[FLVStream], FLVStream]:
                 nonlocal gathering
 
                 if isinstance(item, FlvHeader):
+                    # 新 Header 到达时仍未放行的上一段即被视为碎片并整体丢弃。
                     if gathered_items:
                         logger.debug(
                             'Discarded {} items, total size: {}'.format(

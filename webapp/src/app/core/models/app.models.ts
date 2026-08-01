@@ -3,6 +3,7 @@ export interface AppInfo {
   version: string;
   pid: number;
   ppid: number;
+  /** 进程创建时间，Unix 时间戳（秒）。 */
   create_time: number;
   cwd: string;
   exe: string;

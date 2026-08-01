@@ -26,6 +26,7 @@ import {
   styleUrls: ['./task-detail.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+/** 同步单个任务及其视频、弹幕文件快照，供详情页各子面板共享。 */
 export class TaskDetailComponent implements OnInit, OnDestroy {
   roomId!: number;
   taskData!: TaskData;
@@ -63,6 +64,7 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   }
 
   private syncData(): void {
+    // 三个接口组成同一轮快照；任一失败都会使该轮整体失败，避免展示不同步的数据。
     this.dataSubscription = of(of(0), interval(1000))
       .pipe(
         concatAll(),
@@ -98,6 +100,7 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   }
 
   private desyncData(): void {
+    // 退到后台或销毁页面时，同时停止轮询和当前尚未完成的请求。
     this.dataSubscription?.unsubscribe();
   }
 }

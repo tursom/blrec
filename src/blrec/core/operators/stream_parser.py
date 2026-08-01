@@ -1,3 +1,5 @@
+"""把 HTTP 字节流解析为 FLV tag，并在数据损坏时切换备用 CDN。"""
+
 from __future__ import annotations
 
 import io
@@ -52,6 +54,7 @@ class StreamParser:
             logger.debug(repr(exc))
         except FlvDataError:
             logger.warning(f'Failed to parse stream: {repr(exc)}')
+            # 主/备地址交替使用，避免对同一损坏源无效重试。
             if not self._stream_param_holder.use_alternative_stream:
                 self._stream_param_holder.use_alternative_stream = True
             else:

@@ -1,3 +1,5 @@
+"""仅在上游成功完成后原子替换目标文件的 Rx 操作符。"""
+
 import os
 from typing import Callable, Optional, TypeVar
 

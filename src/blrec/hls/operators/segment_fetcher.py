@@ -1,3 +1,5 @@
+"""下载并校验 fMP4 初始化段和媒体分片。"""
+
 from __future__ import annotations
 
 import time
@@ -96,6 +98,7 @@ class SegmentFetcher:
                     ):
                         url = seg.init_section.absolute_uri
                         data = self._fetch_segment(url)
+                        # 初始化段没有服务端校验值，连续两次内容相同才接受。
                         while True:
                             time.sleep(1)
                             if (_data := self._fetch_segment(url)) == data:
@@ -119,6 +122,7 @@ class SegmentFetcher:
 
                     url = seg.absolute_uri
                     hex_size, crc32, *_ = seg.title.split('|')
+                    # B 站把预期十六进制大小与 CRC32 放在 EXTINF title 中。
                     size = int(hex_size, 16)
                     for _ in range(3):
                         data = self._fetch_segment(url)

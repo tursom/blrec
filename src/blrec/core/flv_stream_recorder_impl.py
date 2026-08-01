@@ -1,3 +1,5 @@
+"""FLV 拉流、修复、分析、切分和落盘的 Rx 管线装配。"""
+
 from typing import Optional
 
 from loguru import logger
@@ -17,6 +19,8 @@ __all__ = ('FLVStreamRecorderImpl',)
 
 
 class FLVStreamRecorderImpl(StreamRecorderImpl, SupportDebugMixin):
+    """按 tag 处理连续 FLV 字节流，并在写盘前修复时间戳与注入元数据。"""
+
     def __init__(
         self,
         live: Live,
@@ -131,6 +135,7 @@ class FLVStreamRecorderImpl(StreamRecorderImpl, SupportDebugMixin):
         self._metadata_dumper.disable()
 
     def _run(self) -> None:
+        # 操作符顺序是数据契约：修复/排序必须发生在切分、分析和写盘之前。
         with logger.contextualize(room_id=self._live.room_id):
             self._subscription = (
                 self._stream_param_holder.get_stream_params()  # type: ignore

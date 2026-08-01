@@ -1,3 +1,5 @@
+"""可选 API Key 鉴权及按客户端 IP 管理的内存限流状态。"""
+
 import secrets
 from typing import Dict, Optional, Set
 
@@ -29,6 +31,7 @@ async def authenticate(
     client_ip = request.client.host
     assert client_ip, 'client_ip is required'
 
+    # 白/黑名单只存在于当前进程内，重启后自然清空。
     if client_ip in blacklist:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Blacklisted')
     if client_ip not in whitelist:
@@ -54,6 +57,7 @@ async def authenticate(
                 detail='Max api key attempts exceeded',
             )
 
+    # 使用恒定时间比较，避免普通字符串比较泄露前缀匹配时间。
     if not secrets.compare_digest(x_api_key, api_key):
         if client_ip in whitelist:
             whitelist.remove(client_ip)

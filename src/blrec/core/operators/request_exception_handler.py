@@ -1,3 +1,5 @@
+"""对瞬时请求异常限速重试，并在特定 HTTP 状态后轮换流地址。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -81,5 +83,6 @@ class RequestExceptionHandler:
         if isinstance(
             exc, requests.exceptions.HTTPError
         ) and exc.response.status_code in (403, 404):
+            # 当前 CDN 地址可能过期或被拒绝，重置 resolver 后从下一路由重新解析。
             self._stream_url_resolver.reset()
             self._stream_url_resolver.rotate_routes()

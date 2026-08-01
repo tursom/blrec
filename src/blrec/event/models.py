@@ -1,3 +1,5 @@
+"""REST/WebSocket、通知和 Webhook 共用的不可变事件负载模型。"""
+
 from __future__ import annotations
 
 import uuid
@@ -25,6 +27,8 @@ class BaseEventData(ABC):
 
 @attr.s(auto_attribs=True, slots=True, frozen=True, kw_only=True)
 class BaseEvent(Generic[_D]):
+    """为业务数据补充事件类型和毫秒级创建时间。"""
+
     type: str
     id: uuid.UUID
     date: datetime

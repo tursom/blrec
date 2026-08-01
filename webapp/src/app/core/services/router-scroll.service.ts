@@ -21,6 +21,11 @@ const customViewportKey = `customViewport`;
 @Injectable({
   providedIn: 'root',
 })
+/**
+ * 在路由导航之间保存并恢复默认视口或自定义滚动容器的位置。
+ *
+ * 策略的增删延迟到导航边界处理，避免当前导航尚未结束时改变判定依据。
+ */
 export class RouterScrollService implements IRouterScrollService, OnDestroy {
   private readonly scrollPositionRestorationSubscription: Subscription | null;
 
@@ -66,7 +71,7 @@ export class RouterScrollService implements IRouterScrollService, OnDestroy {
     const scrollPositionRestore$ = this.router.events.pipe(
       filter((event) => event instanceof NavigationStart || event instanceof NavigationEnd),
       map((event) => event as NavigationStart | NavigationEnd),
-      // Accumulate the scroll positions
+      // scan 在 NavigationStart 记录离开页面的位置，并把触发方式传递到对应的 NavigationEnd。
       scan((acc, event) => {
         if (environment.traceRouterScrolling) {
           this.logger.trace(`${componentName}:: Updating the known scroll positions`);
@@ -94,6 +99,7 @@ export class RouterScrollService implements IRouterScrollService, OnDestroy {
           positions,
           trigger: event instanceof NavigationStart ? event.navigationTrigger : acc.trigger,
           idToRestore:
+            // restoredState 指向历史导航；+1 与下方以 NavigationStart.id 保存的位置键对应。
             (event instanceof NavigationStart && event.restoredState && event.restoredState.navigationId + 1) ||
             acc.idToRestore,
           routeData: this.activatedRoute.firstChild?.routeConfig?.data,
@@ -106,6 +112,7 @@ export class RouterScrollService implements IRouterScrollService, OnDestroy {
         idToRestore: -1,
       } as ScrollPositionRestore),
       filter((scrollPositionRestore) => !!scrollPositionRestore.trigger),
+      // 等 Angular 完成新路由视图更新后再滚动，否则目标容器可能尚未达到最终高度。
       observeOn(asyncScheduler),
     );
 

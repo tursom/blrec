@@ -1,3 +1,5 @@
+"""空间不足时按时间顺序删除超过 TTL 的录播相关文件。"""
+
 import asyncio
 import glob
 import os
@@ -17,6 +19,8 @@ __all__ = ('SpaceReclaimer',)
 
 
 class SpaceReclaimer(SpaceEventListener, SwitchableMixin):
+    """只扫描允许的录播后缀，并且仅在 recycle_records 开启时删除。"""
+
     _SUFFIX_SET = frozenset(
         (
             '.flv',
@@ -76,6 +80,7 @@ class SpaceReclaimer(SpaceEventListener, SwitchableMixin):
     async def _free_space_from_records(self, size: int) -> bool:
         logger.info('Free space from records ...')
         ts = datetime.now().timestamp() - self.rec_ttl
+        # 每删除一个文件就重新检查空间，达到阈值后立即停止扩大删除范围。
         for path in await self._get_record_file_paths(ts):
             await delete_file(path)
             if is_space_enough(self.path, size):
@@ -92,6 +97,7 @@ class SpaceReclaimer(SpaceEventListener, SwitchableMixin):
         paths: Iterable[Path]
         paths = map(lambda p: Path(p), glob.iglob(glob_path, recursive=True))
         paths = filter(lambda p: p.suffix in self._SUFFIX_SET, paths)
+        # 修改时间和访问时间都早于 TTL 才可回收，近期播放过的旧文件会被保留。
         paths = filter(lambda p: p.stat().st_mtime < ts > p.stat().st_atime, paths)
         func = partial(
             sorted, paths, key=lambda p: (p.stat().st_mtime, p.stat().st_atime)

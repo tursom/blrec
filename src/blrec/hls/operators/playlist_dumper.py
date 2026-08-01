@@ -1,3 +1,5 @@
+"""为本地 m4s 文件生成使用 EXT-X-BYTERANGE 的伴随 playlist。"""
+
 from __future__ import annotations
 
 import io
@@ -20,6 +22,8 @@ __all__ = ('PlaylistDumper',)
 
 
 class PlaylistDumper:
+    """镜像远端清单元数据，同时把每个分片 URI 改写为本地文件 byte range。"""
+
     def __init__(self, segment_dumper: SegmentDumper) -> None:
         self._segment_dumper = segment_dumper
 
@@ -118,6 +122,7 @@ class PlaylistDumper:
 
         curr_seq_num = sequence_number_of(item.segment.uri)
         if self._last_seq_num is not None:
+            # 本地 playlist 显式标记序号缺口，播放器才能在断点后重建时间轴。
             if self._last_seq_num + 1 != curr_seq_num:
                 seg.discontinuity = True
             if self._last_seq_num + 1 < curr_seq_num:

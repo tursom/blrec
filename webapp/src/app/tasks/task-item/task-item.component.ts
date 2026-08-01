@@ -34,6 +34,7 @@ import { TaskSettingsService } from '../shared/services/task-settings.service';
   styleUrls: ['./task-item.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+/** 单个任务的状态卡片，协调响应式布局、任务命令和局部设置对话框。 */
 export class TaskItemComponent implements OnChanges, OnDestroy {
   @Input() data!: TaskData;
   @HostBinding('class.stopped') stopped = false;
@@ -106,6 +107,7 @@ export class TaskItemComponent implements OnChanges, OnDestroy {
     if (this.switchPending) {
       return;
     }
+    // 等服务端确认后才允许再次切换，避免快速点击产生相互覆盖的启停命令。
     this.switchPending = true;
 
     if (this.data.task_status.recorder_enabled) {
@@ -182,6 +184,7 @@ export class TaskItemComponent implements OnChanges, OnDestroy {
   }
 
   openSettingsDialog(): void {
+    // 局部覆盖值与全局默认值必须同时到达，表单才能展示最终生效值及继承状态。
     zip(
       this.settingService.getTaskOptions(this.roomId),
       this.settingService.getSettings([
@@ -205,6 +208,7 @@ export class TaskItemComponent implements OnChanges, OnDestroy {
   }
 
   cleanSettingsData(): void {
+    // 对话框关闭后释放快照，下次打开必须重新读取服务端的最新设置。
     delete this.taskOptions;
     delete this.globalSettings;
     this.changeDetector.markForCheck();

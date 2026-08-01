@@ -32,15 +32,11 @@ export class SettingService {
   }
 
   /**
-   * Change settings of the application
+   * 修改应用全局设置。
    *
-   * Change the output directory will cause the application be **restarted**!
-   *
-   * Change network request headers will cause
-   * **all** the Danmaku client be **reconnected**!
-   *
-   * @param settings settings to change
-   * @returns settings of the application
+   * 修改输出目录会触发应用重启；修改网络请求头会重连全部弹幕客户端。
+   * @param settings 仅包含待修改字段的局部设置
+   * @returns 服务端确认后的应用设置
    */
   changeSettings(settings: SettingsIn): Observable<SettingsOut> {
     const url = this.url.makeApiUrl(`/api/v1/settings`);
@@ -53,16 +49,12 @@ export class SettingService {
   }
 
   /**
-   * Change task-specific options
+   * 修改任务级设置。非 `null` 值覆盖对应全局设置，显式传入 `null` 则解除覆盖。
    *
-   * Task-specific options will shadow the corresponding global settings.
-   * Explicitly set options to **null** will remove the value shadowing.
-   *
-   * Change network request headers will cause the Danmaku client be **reconnected**!
-   *
-   * @param roomId the real room id of the task
-   * @param options options to change
-   * @returns changed options
+   * 修改网络请求头会重连该任务的弹幕客户端。
+   * @param roomId 任务的真实房间号
+   * @param options 仅包含待修改字段的局部设置
+   * @returns 服务端保存后的任务级覆盖值
    */
   changeTaskOptions(
     roomId: number,

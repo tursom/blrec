@@ -85,10 +85,15 @@ export interface TaskStatus {
   readonly running_status: RunningStatus;
   readonly stream_url: string;
   readonly stream_host: string;
+  /** 已下载的媒体字节数。 */
   readonly dl_total: number;
+  /** 当前下载速率，单位 byte/s。 */
   readonly dl_rate: number;
+  /** 当前录制段已经过的秒数。 */
   readonly rec_elapsed: number;
+  /** 当前录制段写入的字节数。 */
   readonly rec_total: number;
+  /** 当前文件写入速率，单位 byte/s。 */
   readonly rec_rate: number;
   readonly danmu_total: number;
   readonly danmu_rate: number;
@@ -103,7 +108,9 @@ export interface TaskStatus {
 export interface TaskParam {
   readonly out_dir: string;
   readonly path_template: string;
+  /** 单个输出文件的大小上限，单位字节；0 表示不限制。 */
   readonly filesize_limit: number;
+  /** 单个输出文件的时长上限，单位秒；0 表示不限制。 */
   readonly duration_limit: number;
 
   readonly user_agent: string;
@@ -120,8 +127,11 @@ export interface TaskParam {
   readonly stream_format: StreamFormat;
   readonly recording_mode: RecordingMode;
   readonly quality_number: QualityNumber;
+  /** 流读取超时，单位秒。 */
   readonly read_timeout: number;
+  /** 判定连接中断前允许无数据的秒数。 */
   readonly disconnection_timeout: number;
+  /** 媒体读取缓冲区大小，单位字节。 */
   readonly buffer_size: number;
   readonly save_cover: boolean;
 

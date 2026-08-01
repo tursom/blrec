@@ -1,3 +1,5 @@
+"""周期检测输出目录所在文件系统的剩余空间。"""
+
 import asyncio
 import shutil
 from contextlib import suppress
@@ -23,6 +25,8 @@ class SpaceEventListener(EventListener):
 class SpaceMonitor(
     EventEmitter[SpaceEventListener], SwitchableMixin, AsyncStoppableMixin
 ):
+    """空间低于阈值时发布快照事件；check_interval=0 表示禁用。"""
+
     def __init__(
         self,
         path: str,
@@ -74,6 +78,7 @@ class SpaceMonitor(
             await self._polling_task
 
     async def _polling_loop(self) -> None:
+        # 事件可能连续发出，回收器和通知器应各自保证操作幂等。
         while True:
             if not is_space_enough(self.path, self.space_threshold):
                 logger.warning('No enough disk space left')

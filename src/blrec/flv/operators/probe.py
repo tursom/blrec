@@ -1,3 +1,5 @@
+"""从每个 FLV 分段开头采样少量标签供 ffprobe 识别媒体参数。"""
+
 from __future__ import annotations
 
 import io
@@ -17,6 +19,8 @@ __all__ = ('Prober', 'StreamProfile')
 
 
 class Prober:
+    """旁路探测媒体信息且不改写标签；ffprobe 在当前 Rx 调度线程同步执行。"""
+
     def __init__(self) -> None:
         self._profiles: Subject[StreamProfile] = Subject()
 
@@ -48,6 +52,7 @@ class Prober:
 
                 if self._gathering:
                     self._gathered_items.append(item)
+                    # 十个标签通常足以覆盖 FLV Header、音视频序列头和首批媒体数据。
                     if len(self._gathered_items) >= 10:
                         try:
                             self._do_probe()
@@ -84,6 +89,7 @@ class Prober:
             index_of_avc_sequence_header = gathered_tags.index(avc_sequence_header)
             index_of_aac_sequence_header = gathered_tags.index(aac_sequence_header)
             if index_of_avc_sequence_header > index_of_aac_sequence_header:
+                # ffprobe 对初始化标签顺序敏感，临时样本统一改为 AVC 在 AAC 之前。
                 gathered_tags[index_of_aac_sequence_header] = avc_sequence_header
                 gathered_tags[index_of_avc_sequence_header] = aac_sequence_header
 

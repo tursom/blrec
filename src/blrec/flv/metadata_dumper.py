@@ -1,3 +1,5 @@
+"""录制期间缓存分析结果，并在每个 FLV 文件关闭时写旁车 JSON。"""
+
 import json
 from contextlib import suppress
 from typing import List, Optional
@@ -13,6 +15,8 @@ __all__ = ('MetadataDumper',)
 
 
 class MetadataDumper(SwitchableMixin):
+    """订阅 analyser、joinpoint extractor 和 dumper 的三个同步事件源。"""
+
     def __init__(
         self,
         dumper: flv_ops.Dumper,

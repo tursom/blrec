@@ -1,3 +1,5 @@
+"""在每个 fMP4 文件创建时写出对应的录制元数据旁车文件。"""
+
 from __future__ import annotations
 
 import json

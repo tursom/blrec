@@ -1,3 +1,5 @@
+"""区分局部流连接错误与整机断网，并控制断网等待上限。"""
+
 from __future__ import annotations
 
 import time
@@ -19,6 +21,8 @@ _T = TypeVar('_T')
 
 
 class ConnectionErrorHandler(AsyncCooperationMixin):
+    """断网期间暂停重试；超时后完成管线，让上层结束当前录制。"""
+
     def __init__(
         self,
         live: Live,
@@ -74,6 +78,7 @@ class ConnectionErrorHandler(AsyncCooperationMixin):
     def _wait_for_connection_error(self) -> bool:
         timeout = self.disconnection_timeout
         logger.info(f'Waiting {timeout} seconds for connection recovery... ')
+        # 单调时钟不受系统校时影响，适合计算断网持续时间。
         timebase = time.monotonic()
         while not self._call_coroutine(self._live.check_connectivity()):
             if timeout is not None and time.monotonic() - timebase > timeout:

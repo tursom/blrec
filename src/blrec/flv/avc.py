@@ -1,3 +1,5 @@
+"""按 ISO/IEC 14496 解析 AVC 配置、NALU 与 SPS，并计算视频分辨率。"""
+
 from __future__ import annotations
 import io
 import math
@@ -55,6 +57,8 @@ class PictureParameterSet:
 
 
 class AVCSequenceHeaderParser:
+    """解析 AVCDecoderConfigurationRecord 中的 SPS/PPS 长度前缀结构。"""
+
     def parse(self, data: bytes) -> AVCDecoderConfigurationRecord:
         reader = StructReader(io.BytesIO(data))
 
@@ -123,6 +127,8 @@ class NalUnit:
 
 
 class NalUnitParser:
+    """解析基础 NALU Header，并为普通 NALU 提取 RBSP 字节。"""
+
     def parse(self, data: bytes) -> NalUnit:
         stream = io.BytesIO(data)
         reader = StructReader(stream)
@@ -132,7 +138,7 @@ class NalUnitParser:
         nal_ref_idc = (byte >> 5) & 0b0000_0011
         nal_unit_type = byte & 0b0001_1111
 
-        # extensions ignored
+        # 14/20/21 带额外 extension header；当前解析器不猜测其长度，显式拒绝。
         if nal_unit_type in (14, 20, 21):
             raise NotImplementedError()
         nal_unit_header_bytes = 1
@@ -142,6 +148,7 @@ class NalUnitParser:
         rbsp_bytes_io = io.BytesIO()
 
         while i < num_bytes_in_nal_unit:
+            # ISO/IEC 14496-10 7.3.1：RBSP 中的 00 00 03 需跳过防竞争字节 03。
             with OffsetRepositor(stream):
                 try:
                     next_24_bits = reader.read(3)
@@ -306,6 +313,8 @@ class SequenceParameterSetData:
 
 
 class SequenceParameterSetRBSPParser:
+    """读取 H.264 SPS 的 Exp-Golomb 字段，供裁剪尺寸和分辨率计算使用。"""
+
     def parse(self, rbsp: bytes) -> SequenceParameterSetData:
         bits = bitarray()
         bits.frombytes(rbsp)

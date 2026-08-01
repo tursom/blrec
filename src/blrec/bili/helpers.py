@@ -1,3 +1,5 @@
+"""房间号规范化以及播放信息树的筛选辅助。"""
+
 from typing import Any, Dict, List
 
 import aiohttp
@@ -33,6 +35,7 @@ async def ensure_room_id(room_id: int) -> int:
         else:
             raise
     else:
+        # room_init 会把短房间号解析为所有下游接口统一使用的真实房间号。
         return result['room_id']
 
 

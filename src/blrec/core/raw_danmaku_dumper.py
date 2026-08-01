@@ -1,3 +1,5 @@
+"""原始弹幕 JSONL 的等待、开播前暂存和随视频写入状态机。"""
+
 import asyncio
 import json
 import os
@@ -43,6 +45,8 @@ class RawDanmakuDumper(
     EventEmitter[RawDanmakuDumperEventListener],
     SwitchableMixin,
 ):
+    """串行切换三种写入阶段，并用临时文件保护 prelude 的可见性。"""
+
     def __init__(
         self,
         live: Live,
@@ -94,6 +98,7 @@ class RawDanmakuDumper(
                 return
             await self._stop_locked(finalize_prelude=False)
             self._prelude_path, _ = self._stream_recorder.make_prelude_raw_danmaku_path()
+            # 开播但视频文件尚未创建时写临时 spool，不对外发送文件完成事件。
             self._spool_path = self._prelude_path + '.tmp'
             self._create_dump_task(self._spool_path, emit_events=False)
             self._path = None
@@ -103,6 +108,7 @@ class RawDanmakuDumper(
         async with self._lock:
             initial_data_path = None
             if self._state == RawDanmakuDumpingState.LIVE_PRELUDE_SPOOLING:
+                # 停止 spool writer 后再复制，避免读取到半条 JSONL 记录。
                 await self._stop_dumping_task()
                 initial_data_path = self._spool_path
             elif self._state == RawDanmakuDumpingState.WAITING_DUMPING:
@@ -162,6 +168,7 @@ class RawDanmakuDumper(
         del self._dump_task  # type: ignore
 
     async def _stop_locked(self, *, finalize_prelude: bool) -> None:
+        # finalize 用于真正结束直播；普通状态切换则丢弃尚未归属视频的临时数据。
         if self._state == RawDanmakuDumpingState.LIVE_PRELUDE_SPOOLING:
             await self._stop_dumping_task()
             if finalize_prelude:
@@ -185,6 +192,7 @@ class RawDanmakuDumper(
         if self._spool_path is None or self._prelude_path is None:
             return
         if os.path.exists(self._spool_path):
+            # 原子 rename 后文件才对外可见，并成对发出 created/completed 事件。
             os.replace(self._spool_path, self._prelude_path)
             self._logger.info(f"Raw danmaku file created: '{self._prelude_path}'")
             await self._emit('raw_danmaku_file_created', self._prelude_path)
@@ -212,6 +220,7 @@ class RawDanmakuDumper(
                     await self._emit('raw_danmaku_file_created', path)
 
                 if initial_data_path is not None and os.path.exists(initial_data_path):
+                    # prelude 必须先写入目标文件，随后才消费实时队列以保持时间顺序。
                     async with aiofiles.open(
                         initial_data_path, 'rt', encoding='utf8'
                     ) as initial_file:

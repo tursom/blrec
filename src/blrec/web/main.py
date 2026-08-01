@@ -1,3 +1,5 @@
+"""FastAPI 应用装配、生命周期绑定与内嵌 Angular 静态资源托管。"""
+
 import os
 from importlib.resources import files
 from typing import Optional, Tuple
@@ -21,6 +23,7 @@ from . import security
 from .routers import application, settings, tasks, update, validation, websockets
 from .schemas import ResponseMessage
 
+# 模块导入即完成 ASGI 应用装配；路径规范化必须发生在 Settings.load 之前。
 _env_settings = EnvSettings()
 _path = os.path.abspath(os.path.expanduser(_env_settings.settings_file))
 if not file_exists(_path):
@@ -35,6 +38,7 @@ app = Application(_settings)
 if _env_settings.api_key is None:
     _dependencies = None
 else:
+    # FastAPI 的全局 dependency 会统一保护随后注册的全部业务路由。
     security.api_key = _env_settings.api_key
     _dependencies = [Depends(security.authenticate)]
 
@@ -102,10 +106,12 @@ async def on_startup() -> None:
 
 @api.on_event('shutdown')
 async def on_shuntdown() -> None:
+    # 先持久化最新设置，再停止可能仍会读取设置的后台组件。
     _settings.dump()
     await app.exit()
 
 
+# 路由模块由此显式共享 Application，避免各模块重复装配进程级服务。
 tasks.app = app
 settings.app = app
 application.app = app
@@ -121,14 +127,17 @@ api.include_router(update.router)
 
 
 class WebAppFiles(StaticFiles):
+    """为 Angular history 路由提供 index 回退，并修正 Windows MIME 类型。"""
+
     def lookup_path(self, path: str) -> Tuple[str, Optional[os.stat_result]]:
+        # RouteRedirectMiddleware 把未知前端路径导向 404.html，再在此回退 SPA 入口。
         if path == '404.html':
             path = 'index.html'
         return super().lookup_path(path)
 
     def file_response(self, full_path: str, *args, **kwargs) -> Response:  # type: ignore # noqa
-        # ignore MIME types from Windows registry
-        # workaround for https://github.com/acgnhiki/blrec/issues/12
+        # 不采用 Windows 注册表中可能错误的 .js MIME 映射。
+        # 兼容背景：https://github.com/acgnhiki/blrec/issues/12
         response = super().file_response(full_path, *args, **kwargs)
         if full_path.endswith('.js'):
             js_media_type = 'application/javascript'

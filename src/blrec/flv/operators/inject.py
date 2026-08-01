@@ -1,3 +1,5 @@
+"""在 FLV 流首部插入或扩充 onMetaData，并修正受长度变化影响的偏移。"""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional, cast
@@ -20,6 +22,8 @@ __all__ = ('Injector',)
 
 
 class Injector:
+    """只处理每个 FLV Header 后的第一个标签，其余标签保持原样透传。"""
+
     def __init__(
         self, metadata_provider: Callable[[Dict[str, Any]], Dict[str, Any]]
     ) -> None:
@@ -77,6 +81,7 @@ class Injector:
         if 'keyframes' in final_metadata:
             keyframes = cast(KeyFramesDict, final_metadata['keyframes'])
             offset = new_tag.tag_size - tag.tag_size
+            # 元数据标签变长会整体推后媒体数据，所有关键帧文件偏移都需加同一差值。
             keyframes['filepositions'] = list(
                 map(lambda p: p + offset, keyframes['filepositions'])
             )

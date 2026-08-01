@@ -1,3 +1,5 @@
+"""收集 init section 和若干媒体段，异步探测 fMP4 流参数。"""
+
 from __future__ import annotations
 
 import io
@@ -45,11 +47,13 @@ class Prober:
 
             def on_next(item: Union[InitSectionData, SegmentData]) -> None:
                 if isinstance(item, InitSectionData):
+                    # 每次 init section 都可能代表编码参数变化，重新开始采样。
                     self._gathered_items.clear()
                     self._gathering = True
 
                 if self._gathering:
                     self._gathered_items.append(item)
+                    # init + 若干媒体段能给 ffprobe 足够数据，同时限制内存占用。
                     if len(self._gathered_items) >= 10:
                         try:
                             self._do_probe()

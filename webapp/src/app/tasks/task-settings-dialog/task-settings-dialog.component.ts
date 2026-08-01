@@ -39,6 +39,7 @@ type OptionsModel = NonNullable<TaskOptions>;
   styleUrls: ['./task-settings-dialog.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+/** 编辑任务级覆盖值，同时以全局设置补全表单中的实际生效值。 */
 export class TaskSettingsDialogComponent implements OnChanges {
   @Input() taskOptions!: Readonly<TaskOptions>;
   @Input() globalSettings!: Readonly<GlobalTaskSettings>;
@@ -111,6 +112,7 @@ export class TaskSettingsDialogComponent implements OnChanges {
   }
 
   handleConfirm(): void {
+    // 仅提交相对原覆盖值的变化；继承得到的全局值不会被误写为局部覆盖。
     this.confirm.emit(difference(this.options, this.taskOptions!));
     this.close();
   }
@@ -125,6 +127,7 @@ export class TaskSettingsDialogComponent implements OnChanges {
       Reflect.set(
         model,
         prop,
+        // 读取时用全局值填补 null，写入时仍落到局部 options，以保留“解除覆盖”的语义。
         new Proxy(options, {
           get: (target, prop) => {
             return (

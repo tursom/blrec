@@ -1,3 +1,5 @@
+"""按直播或录制绝对时间基准合并多个弹幕文件。"""
+
 from typing import Iterable
 
 from .common import copy_damus
@@ -8,6 +10,8 @@ __all__ = 'TimebaseType', 'DanmakuCombinator'
 
 
 class DanmakuCombinator:
+    """重新计算每条弹幕相对统一 timebase 的 stime，而不是直接拼接原值。"""
+
     def __init__(
         self,
         in_paths: Iterable[str],

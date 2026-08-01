@@ -1,3 +1,5 @@
+"""把 fMP4 init/media 数据顺序写入单个 m4s 文件并记录 byte range。"""
+
 import io
 from pathlib import PurePath
 from typing import Callable, Optional, Tuple, Union
@@ -15,6 +17,8 @@ __all__ = ('SegmentDumper',)
 
 
 class SegmentDumper:
+    """初始化段变化或上游 split 标志会关闭当前文件并创建新文件。"""
+
     def __init__(
         self, path_provider: Callable[[Optional[int]], Tuple[str, int]]
     ) -> None:
@@ -83,6 +87,7 @@ class SegmentDumper:
     def _must_split_file(
         self, prev_init_item: Optional[InitSectionData], curr_init_item: InitSectionData
     ) -> bool:
+        # init section 描述编解码参数；内容变化时新分片不能安全追加到旧容器。
         if prev_init_item is None:
             curr_profile = ffprobe(curr_init_item.payload)
             logger.debug(f'current init section profile: {curr_profile}')
@@ -164,6 +169,7 @@ class SegmentDumper:
 
                 try:
                     if split_file and not isinstance(item, InitSectionData):
+                        # 人工切片落在媒体段上时，新文件必须先补写最近的 init section。
                         assert last_init_item is not None
                         offset, size = self._write_data(last_init_item)
                         self._update_filesize(size)

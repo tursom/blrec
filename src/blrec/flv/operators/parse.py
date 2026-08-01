@@ -1,3 +1,5 @@
+"""把 HTTP 字节流解析为 FLV 标签流，并统一处理截断、容错和关闭。"""
+
 import io
 from typing import Callable, Optional
 
@@ -23,6 +25,8 @@ def parse(
     backup_timestamp: bool = False,
     restore_timestamp: bool = False,
 ) -> Callable[[Observable[io.RawIOBase]], FLVStream]:
+    """构造解析操作符；时间戳备份/恢复由 ``FlvReader`` 在标签层执行。"""
+
     def _parse(source: Observable[io.RawIOBase]) -> FLVStream:
         def subscribe(
             observer: abc.ObserverBase[FLVStreamItem],
@@ -45,6 +49,7 @@ def parse(
                             tag = reader.read_tag()
                             observer.on_next(tag)
                     finally:
+                        # 即使 EOF 或取消，也补出 AVC end-of-sequence，让下游能完整收尾当前段。
                         if tag is not None and not is_avc_end_sequence(tag):
                             tag = create_avc_end_sequence_tag(
                                 offset=tag.next_tag_offset, timestamp=tag.timestamp

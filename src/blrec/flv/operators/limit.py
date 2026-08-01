@@ -1,3 +1,5 @@
+"""在不越过大小/时长上限的前提下选择 FLV 关键帧切点。"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -20,6 +22,8 @@ __all__ = ('Limiter',)
 
 
 class Limiter:
+    """预留历史最大 GOP 的空间和时长，避免下一关键帧才发现已经超限。"""
+
     def __init__(
         self,
         filesize_limit: int = 0,  # file size in bytes, no limit by default.

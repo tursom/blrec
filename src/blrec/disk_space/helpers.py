@@ -1,3 +1,5 @@
+"""磁盘容量判断和不阻塞事件循环的单文件删除。"""
+
 import asyncio
 import os
 import shutil

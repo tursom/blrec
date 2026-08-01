@@ -1,3 +1,5 @@
+"""把组件专用回调转换为稳定、可序列化的应用事件。"""
+
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
 
@@ -52,6 +54,7 @@ if TYPE_CHECKING:
 
 __all__ = ('LiveEventSubmitter', 'SpaceEventSubmitter', 'PostprocessorEventSubmitter')
 
+# 所有 submitter 写入同一个进程级 Subject，消费者无需了解组件对象关系。
 event_center = EventCenter.get_instance()
 
 

@@ -6,6 +6,7 @@ const API_KEY_STORAGE_KEY = 'app-api-key';
 @Injectable({
   providedIn: 'root',
 })
+/** 管理浏览器本地保存的 API Key，供所有 HTTP 请求共享。 */
 export class AuthService {
   constructor(private storage: StorageService) {}
 
@@ -14,6 +15,7 @@ export class AuthService {
   }
 
   getApiKey(): string {
+    // 未配置时仍返回空字符串，使拦截器始终可以生成结构一致的请求头。
     return this.storage.getData(API_KEY_STORAGE_KEY) ?? '';
   }
 

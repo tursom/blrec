@@ -1,3 +1,5 @@
+"""录制管线可重试的流参数快照与 Rx 起点。"""
+
 from __future__ import annotations
 
 from typing import Any, Final, Optional
@@ -21,6 +23,8 @@ class StreamParams:
 
 
 class StreamParamHolder:
+    """保存期望参数和运行时回退参数，并按订阅时状态发出一次快照。"""
+
     def __init__(
         self,
         *,
@@ -71,6 +75,7 @@ class StreamParamHolder:
         self._use_alternative_stream = value
 
     def fall_back_quality(self) -> None:
+        # 10000 是原画；请求更高特殊画质失败时回退到普遍可用档位。
         self._real_quality_number = 10000
 
     def rotate_api_platform(self) -> None:
@@ -80,6 +85,8 @@ class StreamParamHolder:
             self._api_platform = 'android'
 
     def get_stream_params(self) -> Observable[StreamParams]:
+        """重置上次重试状态，并在调度器上惰性发布当前参数。"""
+
         self.reset()
 
         def subscribe(

@@ -1,3 +1,5 @@
+"""从流错误与媒体时长恢复信号推导录制中断/恢复事件。"""
+
 from __future__ import annotations
 
 import time
@@ -15,6 +17,8 @@ _T = TypeVar('_T')
 
 
 class RecordingMonitor(AsyncCooperationMixin):
+    """记录首次失败时的媒体位置，并等待重连后的首个时长更新确认恢复。"""
+
     def __init__(
         self,
         live: Live,
@@ -60,6 +64,7 @@ class RecordingMonitor(AsyncCooperationMixin):
                 nonlocal recording, failed_count
                 recording = True
                 if failed_count >= CRITERIA:
+                    # 网络重新出数据不等于媒体恢复，需等 analyser 报告时间轴推进。
                     if self._duration_subscription is not None:
                         self._duration_subscription.dispose()
                     self._duration_subscription = self._duration_updated.subscribe(

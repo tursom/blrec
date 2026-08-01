@@ -1,3 +1,5 @@
+"""按 WebHook 订阅类型过滤事件，并以 JSON POST 异步发送。"""
+
 import asyncio
 from typing import Any, Dict, List
 
@@ -16,6 +18,8 @@ __all__ = ('WebHookEmitter',)
 
 
 class WebHookEmitter(SwitchableMixin):
+    """同时消费业务事件和异常；每个目标独立重试，互不阻塞。"""
+
     def __init__(self, webhooks: List[WebHook] = []) -> None:
         super().__init__()
         self.webhooks = webhooks
@@ -49,6 +53,7 @@ class WebHookEmitter(SwitchableMixin):
         self._send_request(url, payload)
 
     def _send_request(self, url: str, payload: Dict[str, Any]) -> None:
+        # EventCenter 回调是同步的，网络 I/O 必须脱离当前分发栈。
         asyncio.create_task(self._send_request_async(url, payload))
 
     async def _send_request_async(self, url: str, payload: Dict[str, Any]) -> None:

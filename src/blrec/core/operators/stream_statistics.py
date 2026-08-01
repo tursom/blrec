@@ -1,3 +1,5 @@
+"""通过包装可读流统计实际被下游消费的字节数和速率。"""
+
 from __future__ import annotations
 
 import io
@@ -11,6 +13,8 @@ __all__ = ('StreamStatistics',)
 
 
 class StreamStatistics:
+    """为每条上游字节流安装计数包装，并在流完成时冻结统计快照。"""
+
     def __init__(self) -> None:
         self._statistics = Statistics()
 
@@ -58,6 +62,8 @@ class StreamStatistics:
 
 
 class CalculableStream(io.RawIOBase):
+    """透传 read/readinto，同时发布每次成功读取的字节数。"""
+
     def __init__(self, stream: io.RawIOBase) -> None:
         self._stream = stream
         self._offset: int = 0
@@ -82,4 +88,5 @@ class CalculableStream(io.RawIOBase):
         return n
 
     def tell(self) -> int:
+        # 这里返回包装器累计读取量，不依赖底层流是否支持 seek/tell。
         return self._offset

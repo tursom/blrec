@@ -1,3 +1,5 @@
+"""消费业务事件/异常，渲染 Liquid 模板并调度通知发送。"""
+
 import asyncio
 import os
 from abc import ABC, abstractmethod
@@ -61,6 +63,8 @@ def _read_template(relpath: str) -> str:
 
 
 class Notifier(SwitchableMixin, ABC):
+    """管理事件订阅和各通知场景的开关，不关心具体传输协议。"""
+
     def __init__(
         self,
         *,
@@ -109,6 +113,7 @@ class Notifier(SwitchableMixin, ABC):
         self.error_message_content = error_message_content
 
     def _do_enable(self) -> None:
+        # 事件和异常是两条独立总线，启停时必须成对订阅/释放。
         events = EventCenter.get_instance().events
         self._event_subscription = events.subscribe(self._on_event)
         exceptions = ExceptionCenter.get_instance().exceptions
@@ -188,6 +193,8 @@ ERROR_MESSAGE_TITLE: Final[str] = '出错了~'
 
 
 class MessageNotifier(Notifier, ABC):
+    """提供模板回退、异步重试和 MessagingProvider 调用的共享实现。"""
+
     provider: MessagingProvider
 
     def _notify_live_began(self, event: LiveBeganEvent) -> None:
@@ -259,6 +266,7 @@ class MessageNotifier(Notifier, ABC):
         return title, content
 
     def _send_message(self, title: str, content: str, msg_type: MessageType) -> None:
+        # 通知失败不能阻塞录制事件分发，独立任务自行完成重试和日志记录。
         asyncio.create_task(self._send_message_async(title, content, msg_type))
 
     async def _send_message_async(
@@ -271,6 +279,7 @@ class MessageNotifier(Notifier, ABC):
                 wait=wait_exponential(multiplier=0.1, max=10),
                 retry=retry_if_exception(lambda e: not isinstance(e, ValueError)),
             ):
+                # ValueError 表示配置缺失或格式错误，重试不会改变结果。
                 with attempt:
                     await self.provider.send_message(title, content, msg_type)
         except Exception as e:

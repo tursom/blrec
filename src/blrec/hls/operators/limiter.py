@@ -1,3 +1,5 @@
+"""在下一个 HLS 分片会越过限制时，为该分片添加切片标志。"""
+
 from __future__ import annotations
 
 from typing import Optional, Union

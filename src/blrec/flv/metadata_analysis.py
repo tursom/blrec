@@ -1,3 +1,5 @@
+"""离线扫描 FLV 并把时长、关键帧和流参数写入旁车元数据。"""
+
 import json
 import os
 
@@ -22,6 +24,7 @@ class AnalysingProgress:
 def analyse_metadata(
     path: str, *, display_progress: bool = False
 ) -> Observable[AnalysingProgress]:
+    # 进度按消费的 tag 字节累计，最终旁车文件只在上游完整结束后写出。
     filesize = os.path.getsize(path)
     filename = os.path.basename(path)
 

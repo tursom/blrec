@@ -1,3 +1,5 @@
+"""后处理使用的关联文件发现、异步删除和旁车读取辅助。"""
+
 import asyncio
 import json
 import os
@@ -43,6 +45,8 @@ async def discard_dir(path: str, log_level: Literal['INFO', 'DEBUG'] = 'INFO') -
 
 
 def files_related(video_path: str) -> Iterable[str]:
+    """只返回实际存在且与最终视频同基名的用户可见产物。"""
+
     file_paths = [
         danmaku_path(video_path),
         raw_danmaku_path(video_path),

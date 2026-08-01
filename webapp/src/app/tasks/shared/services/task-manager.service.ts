@@ -16,6 +16,10 @@ export interface AddTaskResultMessage {
 @Injectable({
   providedIn: 'root',
 })
+/**
+ * 在底层任务 API 之上统一处理操作进度和结果提示。
+ * 返回原 Observable，由组件订阅决定请求何时真正发出以及对话框何时关闭。
+ */
 export class TaskManagerService {
   constructor(
     private message: NzMessageService,

@@ -1,3 +1,5 @@
+"""把 ffmpeg remux 子进程包装为可订阅的进度与结果流。"""
+
 import os
 import re
 import shlex
@@ -28,6 +30,7 @@ _ERROR_PATTERN = re.compile(
 
 @attr.s(auto_attribs=True, slots=True, frozen=True)
 class RemuxingResult:
+    """结合退出码和 stderr 关键字对 ffmpeg 结果做保守分类。"""
 
     return_code: int
     output: str
@@ -63,6 +66,7 @@ def remux_video(
     display_progress: bool = False,
     remove_filler_data: bool = False,
 ) -> Observable[Union[RemuxingProgress, RemuxingResult]]:
+    # ffmpeg 只在 stderr 状态行报告当前输出大小，以此近似 remux 进度。
     SIZE_PATTERN: Final = re.compile(r'size=\s*(?P<number>\d+)(?P<unit>[a-zA-Z]?B)')
     if in_path.endswith('.m3u8'):
         _in_path = video_path(in_path)
@@ -128,8 +132,9 @@ def remux_video(
                     cmd += f' -i "{metadata_path}" -map_metadata 1'
                 cmd += ' -codec copy'
                 if remove_filler_data:
-                    # https://forum.doom9.org/showthread.php?t=152051
-                    # ISO_IEC_14496-10_2020(E)
+                    # 移除 H.264 NAL type 12 filler data，避免纯封装复制保留无效填充。
+                    # 背景：https://forum.doom9.org/showthread.php?t=152051
+                    # ISO/IEC 14496-10:2020(E)
                     # Table 7-1 – NAL unit type codes, syntax element categories, and NAL unit type classes  # noqa
                     # 7.4.2.7 Filler data RBSP semantics
                     cmd += ' -bsf:v filter_units=remove_types=12'
@@ -177,6 +182,7 @@ def remux_video(
         cancelable.disposable = _scheduler.schedule(action)
 
         def dispose() -> None:
+            # dispose 只停止读取进度；Popen 上下文退出时负责等待/关闭子进程资源。
             nonlocal disposed
             disposed = True
 

@@ -1,3 +1,5 @@
+"""把持久化 Webhook 开关编译为运行时事件类型过滤器。"""
+
 from __future__ import annotations
 
 from typing import Set, Tuple, Type

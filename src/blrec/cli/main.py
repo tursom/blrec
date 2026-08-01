@@ -1,3 +1,5 @@
+"""命令行参数到 ASGI 运行环境的适配入口。"""
+
 import os
 import sys
 from copy import deepcopy
@@ -54,6 +56,7 @@ def cli_main(
     api_key: Optional[str] = typer.Option(None, help='web api key'),
 ) -> None:
     """Bilibili live streaming recorder"""
+    # Web 应用在导入时读取环境变量，必须在 uvicorn 导入 blrec.web 前完成映射。
     if config is not None:
         os.environ['BLREC_CONFIG'] = config
     if api_key is not None:
@@ -65,6 +68,7 @@ def cli_main(
     if ipv4 is not None:
         os.environ['BLREC_IPV4'] = '1'
 
+    # tqdm 依赖可交互终端；重定向日志时禁用进度条以免污染输出。
     if not sys.stderr.isatty():
         progress = False
     if progress:
@@ -72,6 +76,7 @@ def cli_main(
     else:
         os.environ['BLREC_PROGRESS'] = ''
 
+    # 中间件拼接 base href 时要求 root_path 同时带首尾斜杠。
     if root_path:
         if not root_path.startswith('/'):
             root_path = '/' + root_path

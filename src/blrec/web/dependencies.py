@@ -1,3 +1,5 @@
+"""把查询参数转换为路由可复用的过滤器和设置字段集合。"""
+
 from functools import partial
 from typing import Callable, Iterable, Iterator, List, Optional, cast
 
@@ -17,6 +19,7 @@ TaskDataFilter = Callable[[Iterable[TaskData]], Iterator[TaskData]]
 def task_data_filter(
     select: DataSelection = Query('all'),
 ) -> TaskDataFilter:
+    # 返回惰性 filter，而不是在 dependency 中复制任务数据列表。
     if select == DataSelection.ALL:
         def func(data: TaskData) -> bool:
             return True

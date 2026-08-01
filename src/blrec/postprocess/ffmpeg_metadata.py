@@ -1,3 +1,5 @@
+"""把录制旁车元数据和断点信息转换为 FFmetadata 文本。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -45,6 +47,7 @@ async def _make_metadata_content_for_flv(flv_path: str) -> str:
     chapters = ''
 
     if join_points := extra_metadata.get('joinpoints'):
+        # 只有非无缝 join point 需要映射为章节，方便用户定位断流位置。
         join_points = list(map(JoinPoint.from_metadata_value, join_points))
         comment += '\n\n' + make_comment_for_joinpoints(join_points)
         last_timestamp = int(
@@ -154,6 +157,8 @@ def _make_comment_for_discontinuities(timestamps: Iterable[int]) -> str:
 
 
 async def _get_discontinuities(playlist_path: str) -> Tuple[List[int], float]:
+    """累计 EXTINF 时长，返回 discontinuity 在本地时间轴中的毫秒位置。"""
+
     loop = asyncio.get_running_loop()
     async with aiofiles.open(playlist_path, encoding='utf8') as file:
         content = await file.read()

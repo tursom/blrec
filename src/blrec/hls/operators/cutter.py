@@ -1,3 +1,5 @@
+"""把一次手动切片请求转换为下一个 HLS 分片上的 split 标志。"""
+
 from __future__ import annotations
 
 from typing import Optional, Tuple, Union

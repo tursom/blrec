@@ -1,3 +1,5 @@
+"""动态配置 Loguru 控制台/文件 sink，并兼容 tqdm 输出。"""
+
 import os
 import sys
 from datetime import datetime
@@ -54,6 +56,7 @@ def configure_logger(
 
     logger.configure(extra={'room_id': ''})
 
+    # 只在值变化时重建 sink，避免每次应用设置都重复打开日志文件。
     if console_log_level != _old_console_log_level:
         if _console_handler_id is not None:
             logger.remove(_console_handler_id)
@@ -77,6 +80,7 @@ def configure_logger(
         log_file_path = make_log_file_path(log_dir)
         logger.info(f'log file: {log_file_path}')
 
+        # 先创建新 sink 再移除旧 sink，保证切换目录期间日志不断档。
         file_handler_id = logger.add(
             log_file_path,
             level='TRACE' if bool(os.environ.get('BLREC_TRACE')) else 'DEBUG',

@@ -1,3 +1,5 @@
+"""连接重试得到的 FLV 子流，并检测重复尾帧以实现无缝续接。"""
+
 from __future__ import annotations
 
 from enum import IntEnum, auto
@@ -153,9 +155,8 @@ def concat(
                 gathered_tags.append(tag)
 
             def has_gathering_completed() -> bool:
-                # XXX: timestamp MUST start from 0 and continuous!
-                # put the correct and fix operator on upstream of this operator
-                # to ensure timestamp start from 0 and continuous!
+                # 上游必须先执行 correct/fix，保证从零开始且连续；否则该时长窗口
+                # 无法可靠判断是否已收集足够数据来寻找重复片段。
                 return gathered_tags[-1].timestamp >= max_duration
 
             def find_last_duplicated_tag(tags: List[FlvTag]) -> int:
@@ -236,11 +237,13 @@ def concat(
                     return
 
                 if (index := find_last_duplicated_tag(tags)) >= 0:
+                    # 找到重叠 tag 时丢弃重试流的重复前缀，并保持时间轴无缝。
                     seamless = True
                     update_delta_duplicated(tags[index])
                     logger.debug(f'Updated delta: {delta}, seamless: {seamless}')
                     tags = tags[index + 1 :]
                 else:
+                    # 无重叠时保留全部数据，并插入带 crc32 的非无缝 join point。
                     seamless = False
                     update_delta_no_duplicated(tags[0])
                     logger.debug(f'Updated delta: {delta}, seamless: {seamless}')

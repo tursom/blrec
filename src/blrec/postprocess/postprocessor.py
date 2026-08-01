@@ -1,3 +1,5 @@
+"""串行消费录制产物，执行元数据注入、remux 和源文件清理。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -61,6 +63,9 @@ class Postprocessor(
     AsyncCooperationMixin,
     SupportDebugMixin,
 ):
+    """把同步/Rx 文件处理桥接到 asyncio 队列，并汇总最终产物事件。"""
+
+    # 所有房间共享单个许可，避免多个 ffmpeg 同时争用大量 CPU、磁盘和内存。
     _worker_semaphore: Final = asyncio.Semaphore(value=1)
 
     def __init__(
@@ -109,7 +114,7 @@ class Postprocessor(
         yield from iter(self._completed_files)
 
     async def on_recording_started(self, recorder: Recorder) -> None:
-        # clear completed files of previous recording
+        # completed_files 只描述当前场直播，开录时清除上一场的展示状态。
         self._completed_files.clear()
 
     async def on_video_file_completed(self, recorder: Recorder, path: str) -> None:
@@ -131,6 +136,7 @@ class Postprocessor(
     async def _do_stop(self) -> None:
         self._recorder.remove_listener(self)
 
+        # 优雅停止会先排空已完成视频的后处理，强制停止顺序由 RecordTask 控制。
         await self._queue.join()
         self._task.cancel()
         with suppress(asyncio.CancelledError):
@@ -156,6 +162,7 @@ class Postprocessor(
         self._completed_files.append(video_path)
 
         async with self._worker_semaphore:
+            # 旁车元数据由录制管线异步落盘，先短暂等待它与视频文件收敛。
             self._logger.debug(f'Postprocessing... {video_path}')
             await self._wait_for_metadata_file(video_path)
 
@@ -182,6 +189,7 @@ class Postprocessor(
     async def _process_flv(self, video_path: str) -> str:
         if not await self._is_vaild_flv_file(video_path):
             self._logger.warning(f'The flv file may be invalid: {video_path}')
+            # 小于 1 MiB 的无效文件保留原样，避免 ffmpeg 产生更误导的空 MP4。
             if os.path.getsize(video_path) < 1024**2:
                 return video_path
 
@@ -228,6 +236,7 @@ class Postprocessor(
                 await self._analyse_metadata(path)
                 metadata = await get_extra_metadata(path)
             else:
+                # 旁车缺少关键帧索引时重新扫描，否则播放器拖动定位可能失效。
                 if 'keyframes' not in metadata:
                     self._logger.warning('The keyframes metadata lost')
                     self._logger.info(f"Analysing metadata for '{path}' ...")
@@ -279,6 +288,7 @@ class Postprocessor(
         return result_path, remux_result
 
     def _analyse_metadata(self, path: str) -> Awaitable[None]:
+        # Rx 管线在线程池运行，Future 把完成/错误信号转换回 asyncio awaitable。
         future: asyncio.Future[None] = asyncio.Future()
         self._postprocessing_path = path
 
@@ -344,6 +354,8 @@ class Postprocessor(
         return await loop.run_in_executor(None, is_valid_flv_file, video_path)
 
     def _should_delete_source_files(self, remux_result: RemuxingResult) -> bool:
+        """按策略和 ffmpeg 结果决定是否删除可恢复的源文件。"""
+
         if self.delete_source == DeleteStrategy.AUTO:
             if not remux_result.is_failed():
                 return True

@@ -1,3 +1,5 @@
+"""WBI 查询参数编码、混淆密钥生成与 MD5 签名。"""
+
 import hashlib
 from typing import Any, List, Tuple
 
@@ -7,6 +9,7 @@ def extract_key(url: str) -> str:
 
 
 def make_key(img_key: str, sub_key: str) -> str:
+    # 映射表定义服务端当前的 64 字符拼接密钥如何抽取为 32 字符混淆密钥。
     # fmt: off
     MAPPING = [
         46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
@@ -17,6 +20,8 @@ def make_key(img_key: str, sub_key: str) -> str:
 
 
 def encode_value(value: str) -> str:
+    """按 WBI 规则移除保留字符，并对其余非安全字节执行百分号编码。"""
+
     chars = []
 
     for c in value:
@@ -32,6 +37,8 @@ def encode_value(value: str) -> str:
 
 
 def build_query(key: str, ts: int, params: List[Tuple[str, Any]]) -> str:
+    """原地加入秒级时间戳、按参数名排序并追加签名。"""
+
     params.append(("wts", str(ts)))
     params.sort(key=lambda p: p[0])
 

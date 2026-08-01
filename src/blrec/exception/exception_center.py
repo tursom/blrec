@@ -1,3 +1,5 @@
+"""应用内未处理异常的进程级 Rx 广播中心。"""
+
 from reactivex import Observable, Subject
 
 from ..utils.patterns import Singleton

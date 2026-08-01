@@ -1,3 +1,5 @@
+"""解析、复用和轮换直播流 URL，并驱动画质回退。"""
+
 from __future__ import annotations
 
 from typing import Final, Optional
@@ -29,6 +31,8 @@ __all__ = ('StreamURLResolver',)
 
 
 class StreamURLResolver(AsyncCooperationMixin):
+    """把线程侧 Rx 参数转换为 URL，并在可恢复的无流错误上重新订阅。"""
+
     _MAX_ATTEMPTS_FOR_NO_STREAM: Final[int] = 10
 
     def __init__(
@@ -124,6 +128,7 @@ class StreamURLResolver(AsyncCooperationMixin):
         return Observable(subscribe)
 
     def _can_resue_url(self, params: StreamParams) -> bool:
+        # 参数相同仍需发起短探测，CDN URL 可能在重试期间已经过期。
         if params == self._stream_params and self._stream_url:
             try:
                 response = self._session.get(
@@ -158,6 +163,7 @@ class StreamURLResolver(AsyncCooperationMixin):
         except (NoStreamAvailable, NoStreamCodecAvailable, NoStreamFormatAvailable):
             self._attempts_for_no_stream += 1
             if self._attempts_for_no_stream > self._MAX_ATTEMPTS_FOR_NO_STREAM:
+                # 持续无流可能意味着已经下播，主动让 LiveMonitor 校正业务状态。
                 self._run_coroutine(self._live_monitor.check_live_status())
                 self._attempts_for_no_stream = 0
         except NoStreamQualityAvailable:

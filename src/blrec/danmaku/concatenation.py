@@ -1,3 +1,5 @@
+"""按调用方给出的毫秒偏移顺序拼接弹幕文件。"""
+
 from typing import Iterable
 
 from .common import copy_damus

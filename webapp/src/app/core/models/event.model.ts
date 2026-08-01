@@ -130,13 +130,17 @@ export interface SpaceNoEnoughEvent {
   readonly type: 'SpaceNoEnoughEvent';
   readonly data: {
     path: string;
+    /** 触发空间不足事件的剩余空间阈值，单位字节。 */
     threshold: number;
     usage: DiskUsage;
   };
 }
 
 export interface DiskUsage {
+  /** 文件系统总容量，单位字节。 */
   total: number;
+  /** 已使用容量，单位字节。 */
   used: number;
+  /** 可用容量，单位字节。 */
   free: number;
 }

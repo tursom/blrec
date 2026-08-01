@@ -1,3 +1,5 @@
+"""B 站直播弹幕 WebSocket 生命周期与二进制帧协议。"""
+
 import asyncio
 import json
 import os
@@ -44,6 +46,8 @@ class DanmakuListener(EventListener):
 
 
 class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
+    """负责鉴权、心跳、消息解压分帧以及断线后的主机轮换重连。"""
+
     _HEARTBEAT_INTERVAL: Final[int] = 30
 
     def __init__(
@@ -140,6 +144,7 @@ class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
             reply = await self._recieve_auth_reply()
             await self._handle_auth_reply(reply)
         except Exception:
+            # 单个主机失败后轮换 host_list；全部失败才刷新 token 和主机列表。
             self._host_index += 1
             if self._host_index >= len(self._danmu_info['host_list']):
                 self._host_index = 0
@@ -170,7 +175,7 @@ class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
         auth_msg = json.dumps(
             {
                 "uid": self._uid,
-                'roomid': self._room_id,  # must not be the short id!
+                'roomid': self._room_id,  # 弹幕鉴权只接受真实房间号。
                 'protover': self._protover,
                 "buvid": self._buvid,
                 'platform': 'web',
@@ -239,6 +244,7 @@ class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
             self._logger.debug('Danmu info updated')
 
     async def _disconnect(self) -> None:
+        # 心跳任务持有 WebSocket 引用，必须先取消再关闭连接。
         await self._cancel_heartbeat_task()
         await self._close_websocket()
         self._logger.debug('Disconnected from server')
@@ -284,6 +290,7 @@ class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
 
     @async_task_with_logger_context
     async def _message_loop(self) -> None:
+        # _receive 只在收集到业务消息时返回，心跳包和错误在内部消化。
         while True:
             for msg in await self._receive():
                 await self._dispatch_message(msg)
@@ -313,6 +320,7 @@ class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
                     await self._handle_receive_error(ValueError(wsmsg))
 
     async def _handle_data(self, data: bytes) -> Optional[List[Dict[str, Any]]]:
+        # Brotli/zlib 解压和嵌套分帧是 CPU 工作，放在线程池避免阻塞事件循环。
         loop = asyncio.get_running_loop()
 
         try:
@@ -333,6 +341,7 @@ class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
         self._logger.warning(f'Failed to receive message: {repr(exc)}')
         await self._emit('error_occurred', exc)
         if isinstance(exc, asyncio.TimeoutError):
+            # 读超时本身不代表连接断开；心跳任务会独立判断连接是否可写。
             return
         await self._retry()
 
@@ -357,6 +366,8 @@ class DanmakuClient(EventEmitter[DanmakuListener], AsyncStoppableMixin):
 
 
 class Frame:
+    """编码和解析 16 字节大端包头的弹幕协议帧。"""
+
     HEADER_FORMAT = '>IHHII'
 
     @staticmethod
@@ -384,6 +395,7 @@ class Frame:
         body = data[hlen:]
 
         if op == WS.OP_MESSAGE:
+            # 压缩后的 body 是多个完整协议帧串联，而不是一个 JSON 数组。
             if ver == WS.BODY_PROTOCOL_VERSION_BROTLI:
                 data = brotli.decompress(body)
             elif ver == WS.BODY_PROTOCOL_VERSION_DEFLATE:
@@ -396,6 +408,7 @@ class Frame:
             msg_list = []
             offset = 0
             while offset < len(data):
+                # 每个子帧用自身 plen 前进，必须保留服务端给出的消息顺序。
                 plen, hlen, ver, op, _ = struct.unpack_from(
                     Frame.HEADER_FORMAT, data, offset
                 )

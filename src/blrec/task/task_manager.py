@@ -1,3 +1,5 @@
+"""按真实房间号管理 RecordTask，并在设置层与任务聚合之间传递配置。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,11 +36,15 @@ __all__ = ('RecordTaskManager',)
 
 
 class RecordTaskManager:
+    """拥有所有房间任务对象，并协调任务的装配、启停和销毁。"""
+
     def __init__(self, settings_manager: SettingsManager) -> None:
         self._settings_manager = settings_manager
         self._tasks: Dict[int, RecordTask] = {}
 
     async def load_all_tasks(self) -> None:
+        """从持久化设置恢复任务；单个房间失败不会阻止其余房间加载。"""
+
         logger.info('Loading all tasks...')
 
         settings_list = self._settings_manager.get_settings({'tasks'}).tasks
@@ -76,6 +82,7 @@ class RecordTaskManager:
     async def add_task(self, settings: TaskSettings) -> None:
         logger.info(f'Adding task {settings.room_id}...')
 
+        # 先注册占位任务，使并发查询能识别“存在但尚未 ready”的状态。
         task = RecordTask(settings.room_id)
         self._tasks[settings.room_id] = task
 
@@ -88,6 +95,7 @@ class RecordTaskManager:
             )
             await task.setup()
 
+            # setup 完成后再应用其余配置，确保底层 recorder/client 已经创建。
             self._settings_manager.apply_task_output_settings(
                 settings.room_id, settings.output
             )
@@ -107,6 +115,7 @@ class RecordTaskManager:
                 await task.enable_recorder()
         except BaseException as e:
             logger.error(f'Failed to add task {settings.room_id} due to: {repr(e)}')
+            # 装配必须具备事务性：任何阶段失败都清理已创建组件并撤销索引。
             await task.destroy()
             del self._tasks[settings.room_id]
             raise
@@ -116,6 +125,7 @@ class RecordTaskManager:
     async def remove_task(self, room_id: int) -> None:
         logger.debug(f'Removing task {room_id}...')
         task = self._get_task(room_id, check_ready=True)
+        # 删除任务不等待后处理排空；强制停止后再拆除 monitor 和聚合对象。
         await task.disable_recorder(force=True)
         await task.disable_monitor()
         await task.destroy()
@@ -294,6 +304,7 @@ class RecordTaskManager:
         if task.cookie != settings.cookie:
             task.cookie = settings.cookie
             changed = True
+        # 已建立的弹幕 WebSocket 不会自动采用新 Header，必须显式重连。
         if changed and restart_danmaku_client:
             await task.restart_danmaku_client()
 
@@ -343,6 +354,8 @@ class RecordTaskManager:
         task.delete_source = settings.delete_source
 
     def _get_task(self, room_id: int, check_ready: bool = False) -> RecordTask:
+        """查找任务；对操作类请求可额外拒绝仍在异步装配中的任务。"""
+
         try:
             task = self._tasks[room_id]
         except KeyError:

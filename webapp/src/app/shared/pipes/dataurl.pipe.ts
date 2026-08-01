@@ -10,6 +10,11 @@ const objectUrlCache = new Map<string, SafeUrl>();
 @Pipe({
   name: 'dataurl',
 })
+/**
+ * 下载外部图片并转换成 Angular 可绑定的本地 URL。
+ *
+ * 两类缓存都以原始 URL 为键并在应用生命周期内复用，避免列表刷新时重复下载和转换。
+ */
 export class DataurlPipe implements PipeTransform {
   constructor(private domSanitizer: DomSanitizer) {}
 
@@ -22,6 +27,7 @@ export class DataurlPipe implements PipeTransform {
         return of(objectUrlCache.get(url)!);
       }
       return from(this.fetchImage(url)).pipe(
+        // Object URL 不复制 Blob 内容，适合常规展示；缓存期间必须保持 URL 有效。
         map((data) => URL.createObjectURL(data)),
         map((objectUrl) => this.domSanitizer.bypassSecurityTrustUrl(objectUrl)),
         tap((objectSafeUrl) => objectUrlCache.set(url, objectSafeUrl)),
@@ -32,6 +38,7 @@ export class DataurlPipe implements PipeTransform {
         return of(dataUrlCache.get(url)!);
       }
       return from(this.fetchImage(url)).pipe(
+        // Data URL 会把内容编码进字符串，适合需要自包含地址的调用方。
         switchMap((data) => this.createDataURL(data)),
         tap((dataUrl) => dataUrlCache.set(url, dataUrl)),
         catchError(() => of(this.domSanitizer.bypassSecurityTrustUrl('')))
@@ -40,6 +47,7 @@ export class DataurlPipe implements PipeTransform {
   }
 
   private async fetchImage(url: string): Promise<Blob> {
+    // 清空 referrer，避免向第三方图片源泄露当前管理页面地址。
     const res = await fetch(url, { referrer: '' });
     return await res.blob();
   }

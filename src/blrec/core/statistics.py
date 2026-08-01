@@ -1,3 +1,5 @@
+"""基于单调时钟的累计量、吞吐率和运行时长统计。"""
+
 import time
 
 
@@ -5,6 +7,8 @@ __all__ = 'Statistics',
 
 
 class Statistics:
+    """按需刷新速率，freeze 后保持最后一次可展示的稳定快照。"""
+
     def __init__(self, interval: float = 1.0) -> None:
         self._interval = interval
         self._frozen = True

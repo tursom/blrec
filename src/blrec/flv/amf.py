@@ -1,3 +1,5 @@
+"""FLV ScriptData 使用的 AMF0 值编码与解码。"""
+
 from enum import IntEnum
 from datetime import datetime
 from collections import OrderedDict
@@ -34,6 +36,8 @@ Undefined: Final[object] = object()
 
 
 class AMFReader:
+    """根据 AMF0 类型标记递归读取标量、对象和数组。"""
+
     def __init__(self, stream: BinaryIO) -> None:
         self._reader = StructReader(stream)
 
@@ -127,6 +131,8 @@ class AMFReader:
 
 
 class AMFWriter:
+    """写出与 AMFReader 对称的 AMF0 数据结构。"""
+
     def __init__(self, stream: BinaryIO) -> None:
         self._writer = StructWriter(stream)
 

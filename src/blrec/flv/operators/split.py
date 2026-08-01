@@ -1,3 +1,5 @@
+"""在 FLV 音视频参数变化时插入新的逻辑流边界。"""
+
 from typing import Callable, Optional
 
 from loguru import logger
@@ -18,7 +20,7 @@ __all__ = ('split',)
 
 def split() -> Callable[[FLVStream], FLVStream]:
     def _split(source: FLVStream) -> FLVStream:
-        """Split the FLV stream when av parameters are changed."""
+        """检测重复的序列头；参数改变后从下一数据标签开始新分段。"""
 
         def subscribe(
             observer: abc.ObserverBase[FLVStreamItem],
@@ -44,6 +46,7 @@ def split() -> Callable[[FLVStream], FLVStream]:
                 last_audio_sequence_header = last_video_sequence_header = None
 
             def insert_header_and_tags() -> None:
+                # 新分段必须重放容器头、元数据及最新序列头，才能独立解码。
                 assert last_flv_header is not None
                 observer.on_next(last_flv_header)
                 if last_metadata_tag is not None:
@@ -94,6 +97,7 @@ def split() -> Callable[[FLVStream], FLVStream]:
                     last_video_sequence_header = tag
                 else:
                     if changed:
+                        # 等序列头收集完成后再切，避免新文件从半套初始化参数开始。
                         logger.debug('Splitting stream...')
                         changed = False
                         insert_header_and_tags()

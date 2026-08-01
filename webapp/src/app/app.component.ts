@@ -16,6 +16,7 @@ import { takeUntil } from 'rxjs/operators';
   styleUrls: ['./app.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+/** 协调顶层路由加载状态与响应式侧栏形态。 */
 export class AppComponent implements OnDestroy {
   title = 'B 站直播录制';
   theme: 'light' | 'dark' = 'light';
@@ -42,7 +43,7 @@ export class AppComponent implements OnDestroy {
       }
     });
 
-    // use drawer as side nav for x-small device
+    // 极窄屏改用抽屉导航，并通过 destroyed 统一释放媒体查询订阅。
     breakpointObserver
       .observe(Breakpoints.XSmall)
       .pipe(takeUntil(this.destroyed))
@@ -55,8 +56,7 @@ export class AppComponent implements OnDestroy {
         changeDetector.markForCheck();
       });
 
-    // display task cards as many as possible
-    // max-width: card-width(400px) * 2 + gutter(12px) + padding(12px) * 2 + sidenav(200px)
+    // 为任务卡片保留双列空间：400px * 2 + 12px 间距 + 12px * 2 内边距 + 200px 侧栏。
     breakpointObserver
       .observe('(max-width: 1036px)')
       .pipe(takeUntil(this.destroyed))

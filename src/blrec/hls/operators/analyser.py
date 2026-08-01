@@ -1,3 +1,5 @@
+"""汇总本地 HLS 时长、文件大小和 ffprobe 视频尺寸。"""
+
 from __future__ import annotations
 
 from typing import Optional, Union
@@ -23,6 +25,8 @@ class MetaData:
 
 
 class Analyser:
+    """不消费媒体负载，只监听旁路统计并在查询时生成快照。"""
+
     def __init__(
         self,
         playlist_dumper: PlaylistDumper,

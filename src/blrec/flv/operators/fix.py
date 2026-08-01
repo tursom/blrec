@@ -1,3 +1,5 @@
+"""修复直播流中回跳或异常跃迁的音视频时间戳。"""
+
 import math
 from typing import Callable, Optional
 
@@ -35,6 +37,7 @@ def fix() -> Callable[[FLVStream], FLVStream]:
             last_video_tag: Optional[VideoTag] = None
             frame_rate = 30.0
             video_frame_interval = math.ceil(1000 / frame_rate)
+            # 默认按 44 kHz 音频节奏和 30 fps 视频估算最小递增间隔（毫秒）。
             sound_sample_interval = math.ceil(1000 / 44)
 
             def reset() -> None:
@@ -74,6 +77,7 @@ def fix() -> Callable[[FLVStream], FLVStream]:
                     last_video_tag = tag
 
             def update_delta(tag: FlvTag) -> None:
+                # 音视频分别参照各自上一 tag，随后再保证全局 tag 序列单调递增。
                 nonlocal delta
 
                 if is_video_tag(tag) and last_video_tag is not None:

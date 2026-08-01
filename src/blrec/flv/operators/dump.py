@@ -1,3 +1,5 @@
+"""把 FLV 标签流写入分段文件，并发布文件和写入进度事件。"""
+
 import io
 from typing import Callable, Optional, Tuple
 
@@ -13,6 +15,8 @@ __all__ = ('Dumper',)
 
 
 class Dumper:
+    """以每个 FLV Header 为文件边界，确保任何退出路径都会关闭当前文件。"""
+
     def __init__(
         self,
         path_provider: Callable[..., Tuple[str, int]],
@@ -79,6 +83,7 @@ class Dumper:
             def on_next(item: FLVStreamItem) -> None:
                 try:
                     if isinstance(item, FlvHeader):
+                        # 上游用新 Header 表示分段；必须先关闭旧文件再创建下一文件。
                         self._close_file()
                         self._open_file()
                         assert self._file is not None
@@ -109,6 +114,7 @@ class Dumper:
                 observer.on_error(e)
 
             def dispose() -> None:
+                # Rx 取消不会调用 on_completed，因此 dispose 也必须承担资源释放。
                 self._close_file()
                 self._reset()
 

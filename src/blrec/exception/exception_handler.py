@@ -1,3 +1,5 @@
+"""订阅 ExceptionCenter 并统一记录未处理异常。"""
+
 from loguru import logger
 
 from ..utils.mixins import SwitchableMixin

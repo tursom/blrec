@@ -11,6 +11,7 @@ import { AuthService } from '../services/auth.service';
 import { catchError, retry } from 'rxjs/operators';
 
 @Injectable()
+/** 为 API 请求注入凭据，并在服务端拒绝凭据时重新向用户收集。 */
 export class AuthInterceptor implements HttpInterceptor {
   constructor(private auth: AuthService) {}
 
@@ -25,7 +26,7 @@ export class AuthInterceptor implements HttpInterceptor {
       .pipe(
         catchError((error: HttpErrorResponse) => {
           if (error.status === 401) {
-            // Unauthorized
+            // 401 表明已保存的凭据失效；新值供后续请求使用，当前请求仍按既有策略重试。
             if (this.auth.hasApiKey()) {
               this.auth.removeApiKey();
             }
@@ -34,6 +35,7 @@ export class AuthInterceptor implements HttpInterceptor {
           }
           throw error;
         }),
+        // RxJS 的 count 表示失败后的重试次数，不包含首次请求。
         retry(3)
       );
   }

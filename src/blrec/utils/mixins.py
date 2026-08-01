@@ -1,3 +1,5 @@
+"""组件启停幂等、跨线程 asyncio 协作和按房间调试开关。"""
+
 from __future__ import annotations
 import asyncio
 import os
@@ -8,6 +10,8 @@ from typing import Awaitable, TypeVar, final
 
 
 class SwitchableMixin(ABC):
+    """用线程锁保证同步 enable/disable 只执行一次状态转换。"""
+
     def __init__(self) -> None:
         super().__init__()
         self._enabled = False
@@ -80,6 +84,8 @@ class StoppableMixin(ABC):
 
 
 class AsyncStoppableMixin(ABC):
+    """用 asyncio.Lock 串行并发 start/stop，并在钩子执行前更新状态。"""
+
     def __init__(self) -> None:
         super().__init__()
         self._stopped = True
@@ -118,6 +124,8 @@ _T = TypeVar('_T')
 
 
 class AsyncCooperationMixin(ABC):
+    """供录制工作线程同步调用创建对象时所在的 asyncio 事件循环。"""
+
     def __init__(self) -> None:
         super().__init__()
         self._loop = asyncio.get_running_loop()
@@ -126,8 +134,7 @@ class AsyncCooperationMixin(ABC):
         from ..exception import submit_exception
 
         async def wrapper() -> None:
-            # call submit_exception in a coroutine
-            # workaround for `RuntimeError: no running event loop`
+            # 在线程安全提交的协程内上报，避免工作线程中没有 running loop。
             submit_exception(exc)
 
         self._call_coroutine(wrapper())
@@ -136,6 +143,7 @@ class AsyncCooperationMixin(ABC):
         return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
     def _call_coroutine(self, coro: Awaitable[_T]) -> _T:
+        # 仅允许工作线程使用；在事件循环线程调用 result() 会造成自锁。
         future = self._run_coroutine(coro)
         return future.result()
 

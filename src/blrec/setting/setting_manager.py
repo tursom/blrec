@@ -1,3 +1,5 @@
+"""运行时设置的更新、持久化与任务级覆盖应用。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -38,6 +40,8 @@ if TYPE_CHECKING:
 
 
 class SettingsManager:
+    """维护原始设置，并把全局配置与任务覆盖项同步到运行组件。"""
+
     def __init__(self, app: Application, settings: Settings) -> None:
         self._app = app
         self._settings = settings
@@ -52,6 +56,7 @@ class SettingsManager:
     async def change_settings(self, settings: SettingsIn) -> SettingsOut:
         changed = False
 
+        # __fields_set__ 只包含 PATCH 明确提交的顶层设置域。
         for name in settings.__fields_set__:
             src_sub_settings = getattr(settings, name)
             dst_sub_settings = getattr(self._settings, name)
@@ -66,6 +71,7 @@ class SettingsManager:
                 update_settings(src_sub_settings, dst_sub_settings)
             changed = True
 
+            # 设置域名称与 apply_* 约定绑定，使落盘和运行时生效保持同一入口。
             func = getattr(self, f'apply_{name}_settings')
             if asyncio.iscoroutinefunction(func):
                 await func()
@@ -90,6 +96,7 @@ class SettingsManager:
 
         changed = False
 
+        # 任务字段为 None 表示撤销覆盖，生效值会在 apply_task_* 中回退到全局设置。
         for name in options.__fields_set__:
             src_opts = getattr(options, name)
             dst_opts = getattr(settings, name)
@@ -112,6 +119,8 @@ class SettingsManager:
         return TaskOptions.from_settings(settings)
 
     async def dump_settings(self) -> None:
+        """在线程池中写 TOML，避免同步文件 I/O 阻塞事件循环。"""
+
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._settings.dump)
 
@@ -128,6 +137,7 @@ class SettingsManager:
         settings = TaskSettings(room_id=room_id)
         self._settings.tasks = [*self._settings.tasks, settings]
         await self.dump_settings()
+        # manager 保留原对象用于持久化；任务装配拿副本，避免绕过变更入口。
         return settings.copy(deep=True)
 
     async def remove_task_settings(self, room_id: int) -> None:
@@ -218,6 +228,7 @@ class SettingsManager:
         *,
         restart_danmaku_client: bool = True,
     ) -> None:
+        # Header 同时被 HTTP API 与弹幕连接使用，变更后通常需要重连弹幕客户端。
         final_settings = self._settings.header.copy()
         shadow_settings(options, final_settings)
         await self._app._task_manager.apply_task_header_settings(
@@ -253,6 +264,7 @@ class SettingsManager:
         )
 
     async def apply_output_settings(self) -> None:
+        # 输出目录既影响新录制文件，也决定磁盘监控和回收器观察的文件系统。
         for settings in self._settings.tasks:
             self.apply_task_output_settings(settings.room_id, settings.output)
 

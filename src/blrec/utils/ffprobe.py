@@ -1,3 +1,5 @@
+"""以 stdin 喂入媒体字节并解析 ffprobe JSON 输出。"""
+
 from __future__ import annotations
 
 import json
@@ -87,6 +89,8 @@ class StreamProfile(TypedDict, total=False):
 
 
 def ffprobe(data: bytes) -> StreamProfile:
+    """同步探测媒体；十秒无结果时终止子进程并传播异常。"""
+
     args = [
         'ffprobe',
         '-show_streams',

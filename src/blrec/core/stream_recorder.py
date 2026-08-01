@@ -1,3 +1,5 @@
+"""在 FLV 与 fMP4/HLS 实现之间选择、切换并转发统一录制事件。"""
+
 import asyncio
 import time
 from typing import Iterator, Optional, Tuple
@@ -26,6 +28,8 @@ class StreamRecorder(
     EventEmitter[StreamRecorderEventListener],
     AsyncStoppableMixin,
 ):
+    """屏蔽两种流格式的管线差异，并在开录前执行可用性回退。"""
+
     def __init__(
         self,
         live: Live,
@@ -250,6 +254,7 @@ class StreamRecorder(
         self.hls_stream_available_time = None
         stream_format = self.stream_format
 
+        # 房间可能仅提供 fMP4；反之 fMP4 通常比 FLV 晚出现，需要限时等待。
         if self._live.has_no_flv_streams():
             if stream_format == 'flv':
                 self._logger.warning(
@@ -301,7 +306,8 @@ class StreamRecorder(
 
     async def _wait_fmp4_stream(self) -> bool:
         end_time = time.monotonic() + self.fmp4_stream_timeout
-        available = False  # debounce
+        # 连续两次探测成功才视为可用，避免切到刚出现但尚不稳定的 HLS 清单。
+        available = False
         while True:
             try:
                 await self._impl._live.get_live_stream_url(stream_format='fmp4')
@@ -317,6 +323,8 @@ class StreamRecorder(
             await asyncio.sleep(1)
 
     def _change_impl(self, stream_format: StreamFormat) -> None:
+        """重建格式专用实现，同时保留用户配置和关键时间点。"""
+
         if stream_format == 'flv':
             cls = FLVStreamRecorderImpl
         elif stream_format == 'fmp4':

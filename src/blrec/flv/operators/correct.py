@@ -1,3 +1,5 @@
+"""把每段 FLV 的起始时间戳平移到零点。"""
+
 from typing import Callable, Optional
 
 from loguru import logger
@@ -53,6 +55,7 @@ def correct() -> Callable[[FLVStream], FLVStream]:
                     return
 
                 if delta is None:
+                    # 序列头通常为零；首两个数据 tag 用于识别乱序并确定真实起点。
                     if is_sequence_header(tag):
                         tag = correct_ts(tag, -tag.timestamp)
                         observer.on_next(tag)

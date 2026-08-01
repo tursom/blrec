@@ -37,6 +37,7 @@ export type SyncStatus<Type extends SV> = {
 export function calcSyncStatus<V extends SV>(
   detail: DetailWithResult<V> | DetailWithError<V>
 ): Partial<SyncStatus<V>> {
+  // 返回值只覆盖本次 diff 涉及的控件，未修改字段保持原有同步状态。
   const successful = 'result' in detail;
   return mapValues(detail.diff, () => successful);
 }
@@ -44,6 +45,7 @@ export function calcSyncStatus<V extends SV>(
 @Injectable({
   providedIn: 'root',
 })
+/** 将表单值变化压缩为 PATCH，并为每个变更字段返回同步结果。 */
 export class SettingsSyncService {
   constructor(
     private message: NzMessageService,
@@ -57,6 +59,7 @@ export class SettingsSyncService {
     deepDiff: boolean = true
   ): Observable<DetailWithResult<V> | DetailWithError<V>> {
     return valueChanges.pipe(
+      // prev/curr 来自连续的表单快照；diff 只发送相对上一快照改变的字段。
       scan<V, [V, V, Partial<V>]>(
         ([, prev], curr) => [
           prev,
@@ -66,6 +69,7 @@ export class SettingsSyncService {
         [initialValue, initialValue, {} as Partial<V>]
       ),
       filter(([, , diff]) => !isEmpty(diff)),
+      // 新输入到来时取消旧 PATCH，以界面中的最新值为准，避免过期响应回写状态。
       switchMap(([prev, curr, diff]) =>
         this.settingService.changeSettings({ [key]: diff }).pipe(
           retry(3, 300),

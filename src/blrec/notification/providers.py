@@ -1,3 +1,5 @@
+"""邮件及第三方推送服务的传输协议适配。"""
+
 import asyncio
 import smtplib
 import ssl
@@ -32,6 +34,8 @@ __all__ = (
 
 
 class MessagingProvider(Singleton, ABC):
+    """通知传输接口；每种 provider 在进程内共享配置和连接参数。"""
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -43,6 +47,8 @@ class MessagingProvider(Singleton, ABC):
 
 
 class EmailService(MessagingProvider):
+    """把阻塞 SMTP 会话放入线程池执行的邮件发送器。"""
+
     def __init__(
         self,
         src_addr: str = '',

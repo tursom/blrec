@@ -1,3 +1,5 @@
+"""访问 PyPI 项目/版本元数据，并区分资源不存在与临时网络失败。"""
+
 from http import HTTPStatus
 from typing import Any, Final, Optional
 
@@ -15,6 +17,8 @@ __all__ = 'PypiApi',
 
 
 class PypiApi:
+    """复用应用 aiohttp 会话查询 PyPI JSON API。"""
+
     BASE_URL: Final[str] = 'https://pypi.org/pypi'
 
     def __init__(self, session: aiohttp.ClientSession):
@@ -26,6 +30,7 @@ class PypiApi:
 
     @retry(
         reraise=True,
+        # 更新检查不应长期阻塞启动流程：在 5 秒预算内指数退避后抛出最后异常。
         stop=stop_after_delay(5),
         wait=wait_exponential(0.1),
     )
@@ -37,6 +42,7 @@ class PypiApi:
                 return await res.json()
         except aiohttp.ClientResponseError as e:
             if e.status == HTTPStatus.NOT_FOUND:
+                # 404 是“项目/版本不存在”的正常查询结果，不参与瞬时错误重试。
                 return None
             else:
                 raise

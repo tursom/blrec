@@ -1,3 +1,5 @@
+"""无损保留弹幕协议消息形状的有界接收队列。"""
+
 from asyncio import Queue, QueueFull
 from typing import Final
 
@@ -36,7 +38,8 @@ class RawDanmakuReceiver(DanmakuListener, StoppableMixin):
         try:
             self._queue.put_nowait(danmu)
         except QueueFull:
-            self._queue.get_nowait()  # discard the first item
+            # 消费者长期落后时淘汰最旧项，保证直播主链路不被反压阻塞。
+            self._queue.get_nowait()
             self._queue.put_nowait(danmu)
 
     def _clear_queue(self) -> None:

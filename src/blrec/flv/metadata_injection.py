@@ -1,3 +1,5 @@
+"""通过临时文件重写 FLV，在成功完成后原子替换源文件。"""
+
 import os
 from datetime import datetime
 from typing import Any, Dict
@@ -27,6 +29,7 @@ def inject_metadata(
     filesize = os.path.getsize(path)
 
     root, ext = os.path.splitext(path)
+    # 不原地修改容器，异常时保留原始录播供恢复。
     temp_path = f'{root}_injecting{ext}'
     filename = os.path.basename(path)
 

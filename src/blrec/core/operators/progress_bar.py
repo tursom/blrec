@@ -1,3 +1,5 @@
+"""录制管线的可选终端字节进度条。"""
+
 from __future__ import annotations
 
 import os
@@ -16,6 +18,8 @@ DISPLAY_PROGRESS = bool(os.environ.get('BLREC_PROGRESS'))
 
 
 class ProgressBar:
+    """按标签序列化大小累计进度，并在完成或取消时关闭终端资源。"""
+
     def __init__(self, live: Live) -> None:
         self._live = live
         self._pbar: Optional[tqdm] = None

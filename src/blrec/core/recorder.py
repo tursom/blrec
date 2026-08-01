@@ -1,3 +1,5 @@
+"""房间级录制协调器，统一视频、结构化弹幕、原始弹幕和封面产物。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -76,6 +78,8 @@ class Recorder(
     CoverDownloaderEventListener,
     StreamRecorderEventListener,
 ):
+    """响应 LiveMonitor 事件，驱动各录制组件并向任务层汇总文件事件。"""
+
     def __init__(
         self,
         live: Live,
@@ -114,6 +118,7 @@ class Recorder(
         self._record_raw_danmaku_during_waiting = (
             record_raw_danmaku_during_waiting
         )
+        # 设置变更和直播事件都可能调整原始弹幕状态，必须串行推进其状态机。
         self._raw_danmaku_coordinator_lock = asyncio.Lock()
 
         self._recording: bool = False
@@ -409,6 +414,7 @@ class Recorder(
 
     async def on_live_ended(self, live: Live) -> None:
         self._logger.info('The live has ended')
+        # 给流尾和延迟到达的结束消息留出短暂缓冲，再封口录制文件。
         await asyncio.sleep(3)
         self._stream_available = False
         self._stream_recorder.stream_available_time = None
@@ -432,6 +438,7 @@ class Recorder(
         self._stream_recorder.update_progress_bar_info()
 
     async def on_video_file_created(self, path: str, record_start_time: int) -> None:
+        # prelude 临时数据在这里并入与视频同名的 JSONL，保证两者时间边界一致。
         if self.save_raw_danmaku:
             self._raw_danmaku_receiver.start()
             await self._raw_danmaku_dumper.start_live_dumping(path)
@@ -497,6 +504,7 @@ class Recorder(
         self._recording = True
 
         if self.save_raw_danmaku:
+            # 视频流地址尚未就绪时先写 prelude spool，避免丢失开播初始弹幕。
             self._raw_danmaku_receiver.start()
             await self._raw_danmaku_dumper.start_live_prelude()
         else:
@@ -519,6 +527,7 @@ class Recorder(
             return
         self._recording = False
 
+        # 先封口视频，触发相关文件完成事件，再停止依赖该边界的弹幕组件。
         await self._stream_recorder.stop()
         await self._raw_danmaku_dumper.stop_live()
         self._raw_danmaku_receiver.stop()
@@ -541,6 +550,7 @@ class Recorder(
         self._stream_recorder.clear_files()
 
     def _schedule_raw_danmaku_state_sync(self) -> None:
+        # Pydantic 赋值也可能发生在没有运行事件循环的装配阶段，此时由后续启动同步。
         try:
             task = asyncio.create_task(self._sync_raw_danmaku_state())
         except RuntimeError:
@@ -548,6 +558,8 @@ class Recorder(
         task.add_done_callback(exception_callback)
 
     async def _sync_raw_danmaku_state(self, *, force_stop: bool = False) -> None:
+        """把配置、录制状态和原始弹幕 dumper 状态收敛到一致。"""
+
         async with self._raw_danmaku_coordinator_lock:
             if force_stop or self.stopped:
                 await self._raw_danmaku_dumper.shutdown()

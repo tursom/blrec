@@ -1,3 +1,5 @@
+"""复制弹幕时重算相对时间轴的共享逻辑。"""
+
 
 from typing import Optional
 
@@ -14,6 +16,7 @@ async def copy_damus(
     delta: int = 0,  # milliseconds
 ) -> None:
     async for danmu in reader.read_danmus():
+        # date 是毫秒级墙钟时间，stime 是播放器使用的片内秒数。
         if timebase is None:
             stime = max(0, danmu.stime * 1000 + delta) / 1000
         else:
