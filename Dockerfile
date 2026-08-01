@@ -1,25 +1,50 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.11-slim-buster
+FROM python:3.11-alpine AS builder
+
+WORKDIR /build
+
+RUN apk add --no-cache \
+    build-base \
+    cargo \
+    libffi-dev \
+    libxml2-dev \
+    libxslt-dev \
+    linux-headers \
+    openssl-dev \
+    zlib-dev
+
+COPY README.md MANIFEST.in pyproject.toml setup.py setup.cfg blrec.spec ./
+COPY src ./src
+
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir . pyinstaller && \
+    pyinstaller --clean --noconfirm blrec.spec
+
+FROM alpine
 
 WORKDIR /app
 VOLUME ["/cfg", "/log", "/rec"]
 
-COPY src src/
-COPY setup.py setup.cfg ./
+RUN apk add --no-cache \
+    ca-certificates \
+    ffmpeg \
+    libffi \
+    libgcc \
+    libstdc++ \
+    libxml2 \
+    libxslt \
+    openssl \
+    tzdata && \
+    update-ca-certificates
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg build-essential python3-dev && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip3 install --no-cache-dir -e . && \
-    apt-get purge -y --auto-remove build-essential python3-dev
-# ref: https://github.com/docker-library/python/issues/60#issuecomment-134322383
+COPY --from=builder /build/dist/blrec /usr/local/bin/blrec
 
-ENV BLREC_DEFAULT_SETTINGS_FILE=/cfg/settings.toml
-ENV BLREC_DEFAULT_LOG_DIR=/log
-ENV BLREC_DEFAULT_OUT_DIR=/rec
-ENV TZ="Asia/Shanghai"
+ENV BLREC_DEFAULT_SETTINGS_FILE=/cfg/settings.toml \
+    BLREC_DEFAULT_LOG_DIR=/log \
+    BLREC_DEFAULT_OUT_DIR=/rec \
+    TZ=Asia/Shanghai
 
 EXPOSE 2233
-ENTRYPOINT ["blrec", "--host", "0.0.0.0", "--no-progress"]
+ENTRYPOINT ["/usr/local/bin/blrec", "--host", "0.0.0.0", "--no-progress"]
 CMD []
