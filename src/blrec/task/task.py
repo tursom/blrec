@@ -3,7 +3,7 @@
 import os
 from contextlib import suppress
 from pathlib import PurePath
-from typing import Iterator, List, Optional
+from typing import Iterable, Iterator, List, Optional
 
 from blrec.bili.danmaku_client import DanmakuClient
 from blrec.bili.live import Live
@@ -461,6 +461,11 @@ class RecordTask:
 
     def cut_stream(self) -> bool:
         return self._recorder.cut_stream()
+
+    async def process_existing_files(self, paths: Iterable[str]) -> None:
+        """把启动恢复得到的既有录制交给当前任务的后处理配置。"""
+
+        await self._postprocessor.process_existing_files(paths)
 
     async def setup(self) -> None:
         """初始化共享 Live 会话并装配房间内各协作组件。"""

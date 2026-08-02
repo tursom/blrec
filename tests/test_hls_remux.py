@@ -153,6 +153,30 @@ class HLSRemuxFallbackTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(Path(self.playlist_path).exists())
         self.assertTrue(Path(self.tmp.name, 'record.mp4').exists())
 
+    async def test_process_existing_files_deduplicates_and_restores_stopped_state(
+        self,
+    ) -> None:
+        postprocessor = Postprocessor(SimpleNamespace(room_id=1), self.recorder)
+
+        await postprocessor.process_existing_files([self.video_path, self.video_path])
+
+        self.assertTrue(postprocessor.stopped)
+        self.assertEqual(list(postprocessor.get_completed_files()), [self.video_path])
+        self.recorder.add_listener.assert_called_once_with(postprocessor)
+        self.recorder.remove_listener.assert_called_once_with(postprocessor)
+
+    async def test_process_existing_files_keeps_running_postprocessor_started(
+        self,
+    ) -> None:
+        postprocessor = Postprocessor(SimpleNamespace(room_id=1), self.recorder)
+        await postprocessor.start()
+        self.addAsyncCleanup(postprocessor.stop)
+
+        await postprocessor.process_existing_files([self.video_path])
+
+        self.assertFalse(postprocessor.stopped)
+        self.recorder.remove_listener.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

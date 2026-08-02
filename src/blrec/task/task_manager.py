@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Dict, Iterator, Optional
+from functools import partial
+from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple
 
 import aiohttp
 from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_exponential
@@ -14,6 +15,7 @@ from ..bili.exceptions import ApiRequestError
 from ..core.typing import MetaData
 from ..exception import NotFoundError, submit_exception
 from ..flv.operators import StreamProfile
+from ..hls.recovery import recover_incomplete_hls_recordings
 from .models import DanmakuFileDetail, TaskData, TaskParam, VideoFileDetail
 from .task import RecordTask
 
@@ -36,6 +38,16 @@ from ..setting import (
 __all__ = ('RecordTaskManager',)
 
 
+_retry_task_operation = retry(
+    reraise=True,
+    retry=retry_if_exception_type(
+        (asyncio.TimeoutError, aiohttp.ClientError, ApiRequestError)
+    ),
+    wait=wait_exponential(max=10),
+    stop=stop_after_delay(60),
+)
+
+
 class RecordTaskManager:
     """拥有所有房间任务对象，并协调任务的装配、启停和销毁。"""
 
@@ -54,11 +66,28 @@ class RecordTaskManager:
         settings_list = self._settings_manager.get_settings({'tasks'}).tasks
         assert settings_list is not None
 
+        assembled: List[Tuple[TaskSettings, RecordTask]] = []
         for settings in settings_list:
+            logger.info(f'Adding task {settings.room_id}...')
             try:
-                await self.add_task(settings)
+                task = await self._assemble_task_with_retry(settings)
             except Exception as e:
                 submit_exception(e)
+
+            else:
+                assembled.append((settings, task))
+
+        await self._recover_tasks(
+            {settings.room_id: task for settings, task in assembled}
+        )
+
+        for settings, _task in assembled:
+            try:
+                await self._activate_loaded_task_with_retry(settings)
+            except Exception as e:
+                submit_exception(e)
+            else:
+                logger.info(f'Successfully added task {settings.room_id}')
 
         logger.info('Load all tasks complete')
 
@@ -75,17 +104,27 @@ class RecordTaskManager:
     def has_task(self, room_id: int) -> bool:
         return room_id in self._tasks
 
-    @retry(
-        reraise=True,
-        retry=retry_if_exception_type(
-            (asyncio.TimeoutError, aiohttp.ClientError, ApiRequestError)
-        ),
-        wait=wait_exponential(max=10),
-        stop=stop_after_delay(60),
-    )
+    @_retry_task_operation
     async def add_task(self, settings: TaskSettings) -> None:
         logger.info(f'Adding task {settings.room_id}...')
 
+        task = await self._assemble_task(settings)
+        try:
+            await self._recover_tasks({settings.room_id: task})
+            await self._activate_task(task, settings)
+        except BaseException as e:
+            await self._discard_failed_task(settings.room_id, task, e)
+            raise
+
+        logger.info(f'Successfully added task {settings.room_id}')
+
+    @_retry_task_operation
+    async def _assemble_task_with_retry(
+        self, settings: TaskSettings
+    ) -> RecordTask:
+        return await self._assemble_task(settings)
+
+    async def _assemble_task(self, settings: TaskSettings) -> RecordTask:
         # 先注册占位任务，使并发查询能识别“存在但尚未 ready”的状态。
         task = RecordTask(settings.room_id, http_history=self._http_history)
         self._tasks[settings.room_id] = task
@@ -112,19 +151,71 @@ class RecordTaskManager:
             self._settings_manager.apply_task_postprocessing_settings(
                 settings.room_id, settings.postprocessing
             )
-
-            if settings.enable_monitor:
-                await task.enable_monitor()
-            if settings.enable_recorder:
-                await task.enable_recorder()
-        except BaseException as e:
-            logger.error(f'Failed to add task {settings.room_id} due to: {repr(e)}')
-            # 装配必须具备事务性：任何阶段失败都清理已创建组件并撤销索引。
-            await task.destroy()
-            del self._tasks[settings.room_id]
+        except BaseException as exc:
+            await self._discard_failed_task(settings.room_id, task, exc)
             raise
 
-        logger.info(f'Successfully added task {settings.room_id}')
+        return task
+
+    async def _recover_tasks(self, tasks: Dict[int, RecordTask]) -> None:
+        if not tasks:
+            return
+
+        out_dirs = sorted({task.out_dir for task in tasks.values()})
+        loop = asyncio.get_running_loop()
+        try:
+            recovered = await loop.run_in_executor(
+                None,
+                partial(
+                    recover_incomplete_hls_recordings, out_dirs, set(tasks.keys())
+                ),
+            )
+        except Exception as exc:
+            logger.warning(f'Failed to scan incomplete HLS recordings: {exc!r}')
+            submit_exception(exc)
+            return
+
+        for room_id, paths in recovered.items():
+            task = tasks.get(room_id)
+            if task is None:
+                continue
+            try:
+                await task.process_existing_files(paths)
+            except Exception as exc:
+                logger.warning(
+                    f'Failed to postprocess recovered HLS files for room '
+                    f'{room_id}: {exc!r}'
+                )
+                submit_exception(exc)
+
+    async def _activate_task(
+        self, task: RecordTask, settings: TaskSettings
+    ) -> None:
+        if settings.enable_monitor:
+            await task.enable_monitor()
+        if settings.enable_recorder:
+            await task.enable_recorder()
+
+    @_retry_task_operation
+    async def _activate_loaded_task_with_retry(
+        self, settings: TaskSettings
+    ) -> None:
+        task = self._tasks.get(settings.room_id)
+        if task is None:
+            task = await self._assemble_task(settings)
+        try:
+            await self._activate_task(task, settings)
+        except BaseException as exc:
+            await self._discard_failed_task(settings.room_id, task, exc)
+            raise
+
+    async def _discard_failed_task(
+        self, room_id: int, task: RecordTask, exc: BaseException
+    ) -> None:
+        logger.error(f'Failed to add task {room_id} due to: {repr(exc)}')
+        # 装配必须具备事务性：任何阶段失败都清理已创建组件并撤销索引。
+        await task.destroy()
+        self._tasks.pop(room_id, None)
 
     async def remove_task(self, room_id: int) -> None:
         logger.debug(f'Removing task {room_id}...')

@@ -6,7 +6,18 @@ import asyncio
 import os
 from contextlib import suppress
 from pathlib import PurePath
-from typing import Any, Awaitable, Dict, Final, Iterator, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Awaitable,
+    Dict,
+    Final,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
 from loguru import logger
 from reactivex.scheduler import ThreadPoolScheduler
@@ -119,6 +130,24 @@ class Postprocessor(
 
     async def on_video_file_completed(self, recorder: Recorder, path: str) -> None:
         self._queue.put_nowait(path)
+
+    async def process_existing_files(self, paths: Iterable[str]) -> None:
+        """串行处理恢复得到的既有视频，并保持调用前的启停状态。"""
+
+        unique_paths = list(dict.fromkeys(paths))
+        if not unique_paths:
+            return
+
+        started_here = self.stopped
+        if started_here:
+            await self.start()
+        try:
+            for path in unique_paths:
+                self._queue.put_nowait(path)
+            await self._queue.join()
+        finally:
+            if started_here:
+                await self.stop()
 
     async def on_danmaku_file_completed(self, recorder: Recorder, path: str) -> None:
         self._completed_files.append(path)
