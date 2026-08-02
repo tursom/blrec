@@ -257,20 +257,43 @@ class Postprocessor(
         if ext == '.flv':
             out_path = str(PurePath(in_path).with_suffix('.mp4'))
             metadata_path = await make_metadata_file(in_path)
+            remux_out_path = out_path
         elif ext == '.m4s':
             _in_path = in_path
             in_path = playlist_path(in_path)
             out_path = str(PurePath(in_path).with_suffix('.mp4'))
             metadata_path = await make_metadata_file(_in_path)
+            remux_out_path = str(PurePath(out_path).with_suffix('.part.mp4'))
         else:
             raise NotImplementedError(in_path)
 
         self._logger.info(f"Remuxing '{in_path}' to '{out_path}' ...")
-        remux_result = await self._remux_video(in_path, out_path, metadata_path)
+        remux_result = await self._remux_video(
+            in_path, remux_out_path, metadata_path, remove_filler_data=True
+        )
+
+        if ext == '.m4s' and remux_result.is_failed():
+            self._logger.debug(
+                f'filtered ffmpeg output before fallback:\n{remux_result.output}'
+            )
+            self._logger.warning(
+                'Filtered HLS remux failed, retrying without the filler filter.'
+            )
+            await self._discard_partial_output(remux_out_path)
+            remux_result = await self._remux_video(
+                in_path, remux_out_path, metadata_path, remove_filler_data=False
+            )
+
+        if ext == '.m4s':
+            if remux_result.is_failed():
+                await self._discard_partial_output(remux_out_path)
+            else:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, os.replace, remux_out_path, out_path)
 
         if remux_result.is_failed():
             self._logger.error(f"Failed to remux '{in_path}' to '{out_path}'")
-            result_path = _in_path if ext == 'm4s' else in_path
+            result_path = _in_path if ext == '.m4s' else in_path
         elif remux_result.is_warned():
             self._logger.warning('Remuxing done, but ran into problems.')
             result_path = out_path
@@ -323,31 +346,50 @@ class Postprocessor(
         return future
 
     def _remux_video(
-        self, in_path: str, out_path: str, metadata_path: str
+        self,
+        in_path: str,
+        out_path: str,
+        metadata_path: str,
+        *,
+        remove_filler_data: bool,
     ) -> Awaitable[RemuxingResult]:
         future: asyncio.Future[RemuxingResult] = asyncio.Future()
+        loop = asyncio.get_running_loop()
         self._postprocessing_path = in_path
+
+        def set_result(value: RemuxingResult) -> None:
+            if not future.done():
+                future.set_result(value)
+
+        def set_exception(exc: Exception) -> None:
+            if not future.done():
+                future.set_exception(exc)
 
         def on_next(value: Union[RemuxingProgress, RemuxingResult]) -> None:
             if isinstance(value, RemuxingProgress):
                 self._postprocessing_progress = value
             elif isinstance(value, RemuxingResult):
-                future.set_result(value)
+                loop.call_soon_threadsafe(set_result, value)
 
         subscription = remux_video(
             in_path,
             out_path,
             metadata_path,
             display_progress=DISPLAY_PROGRESS,
-            remove_filler_data=True,
+            remove_filler_data=remove_filler_data,
         ).subscribe(
             on_next=on_next,
-            on_error=lambda e: future.set_exception(e),
+            on_error=lambda e: loop.call_soon_threadsafe(set_exception, e),
             scheduler=self._scheduler,
         )
         future.add_done_callback(lambda f: subscription.dispose())
 
         return future
+
+    async def _discard_partial_output(self, path: str) -> None:
+        loop = asyncio.get_running_loop()
+        if await loop.run_in_executor(None, os.path.isfile, path):
+            await discard_file(path, 'DEBUG')
 
     async def _is_vaild_flv_file(self, video_path: str) -> bool:
         loop = asyncio.get_running_loop()
