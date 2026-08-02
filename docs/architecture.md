@@ -1,6 +1,8 @@
 # blrec 项目整体架构
 
-本文档基于当前仓库代码整理，目标是帮助维护者快速理解项目的运行形态、模块边界、核心数据流和构建发布方式。
+本文档基于当前仓库代码整理，目标是帮助维护者快速理解项目的运行形态、模块边界、核心数据流和构建交付方式。
+
+搭建本地环境和执行检查时，请配合阅读[开发指南](development.md)。准备版本和发行物时，请阅读[维护与发布](maintenance.md)。
 
 ## 1. 项目概览
 
@@ -54,10 +56,12 @@ flowchart LR
 | `src/blrec` | Python 主体源码 |
 | `webapp` | Angular 前端源码 |
 | `src/blrec/data/webapp` | Angular 构建后的静态资源，运行时由 FastAPI 挂载 |
-| `docs` | 补充文档 |
-| `README.md` | 用户向说明 |
+| `docs` | 安装、开发、架构和维护文档 |
+| `README.md` | 项目状态与文档入口 |
+| `CONTRIBUTING.md` | Issue、Discussion 和 Pull Request 协作规范 |
 | `pyproject.toml` / `setup.py` / `MANIFEST.in` | Python 打包配置 |
-| `Dockerfile` | 容器化运行入口 |
+| `blrec.spec` | PyInstaller 构建配置 |
+| `Dockerfile` | PyInstaller 构建和容器运行入口 |
 
 ### 3.2 后端主要包
 
@@ -246,14 +250,14 @@ FastAPI 生命周期事件负责驱动应用对象：
 
 项目有两条横向通道：
 
-### 事件通道
+#### 事件通道
 
 - `blrec.event.EventCenter` 基于 `reactivex.Subject`
 - 各类事件提交到统一事件中心
 - WebSocket `/ws/v1/events` 将事件推送给前端
 - Webhook 和通知器也可以消费同类业务事件
 
-### 异常通道
+#### 异常通道
 
 - `blrec.exception.ExceptionCenter` 同样基于 `reactivex.Subject`
 - 未处理异常会被统一提交
@@ -444,7 +448,7 @@ sequenceDiagram
 
 ## 9. 构建与交付方式
 
-这是本项目很重要的一点：源码分离，交付合并。
+这是本项目很重要的一点：源码分离，交付合并。无论采用源码、独立二进制还是容器运行，用户最终访问的都是同一个后端进程及其内嵌 Web 前端。
 
 ### 9.1 前端构建
 
@@ -457,19 +461,31 @@ sequenceDiagram
 - Angular 产物不会输出到 `webapp/dist`
 - 而是直接写入 Python 包目录 `src/blrec/data/webapp`
 
-### 9.2 Python 打包
+### 9.2 Python 源码打包
 
 `MANIFEST.in` 中：
 
 - `graft src/blrec/data`
 
-因此打包 Python 发行物时，前端静态文件会一起进入安装包。
+因此构建 Python 源码包或 wheel 时，前端静态文件会一起进入安装包。源码安装只作为开发和验证路径，不是社区维护版面向普通用户的发行渠道。
 
-### 9.3 运行时托管
+### 9.3 PyInstaller 打包
+
+根目录的 `blrec.spec` 以 `src/blrec/__main__.py` 为入口，收集 blrec 的数据文件和 Uvicorn 等运行时动态模块。
+
+PyInstaller 产物包含 Python 应用及已构建的前端资源。计划中的 GitHub Release 会分别提供 Windows x64、Linux amd64 和 Linux arm64 压缩包；首个维护版本发布前，这些产物仍属于目标发行形态。
+
+### 9.4 容器镜像
+
+`Dockerfile` 使用多阶段构建：builder 阶段安装项目并生成 PyInstaller 单文件程序，运行阶段只复制程序并安装 ffmpeg、证书和必要的系统动态库。
+
+容器默认使用 `/cfg`、`/log` 和 `/rec` 保存设置、日志和录播文件，并通过 `2233` 端口提供 Web 界面和 API。正式镜像源与标签约定见[安装与使用](installation.md)。
+
+### 9.5 运行时托管
 
 `src/blrec/web/main.py` 中将 `src/blrec/data/webapp` 挂载为静态站点根目录，所以最终交付形态是：
 
-- 一个 Python 应用
+- 一个 Python 应用或由 PyInstaller 封装的等价可执行程序
 - 内含已经编译好的 Web 前端
 - 对外暴露单一端口
 
@@ -477,7 +493,7 @@ sequenceDiagram
 
 ### 10.1 阅读顺序建议
 
-第一次读仓库时，建议按这个顺序进入：
+第一次读仓库时，先阅读[开发指南](development.md)准备环境，再按这个顺序进入源码：
 
 1. `src/blrec/cli/main.py`
 2. `src/blrec/web/main.py`
@@ -496,6 +512,7 @@ sequenceDiagram
 - 改设置模型前，先确认 `SettingsManager.apply_*` 和前端设置页是否同时需要更新。
 - 改录制链路前，优先确认事件提交、后处理和文件状态展示是否会被影响。
 - 不要手改 `src/blrec/data/webapp` 下的编译产物，应修改 `webapp` 源码后重新构建。
+- 改发行方式前，确认 README、安装指南、维护指南、Release 资产和镜像标签使用相同口径。
 
 ## 11. 架构总结
 
@@ -505,6 +522,6 @@ sequenceDiagram
 - 一个以 `Application -> RecordTaskManager -> RecordTask` 为主线的后端编排模型
 - 一个以 `Live / Recorder / Postprocessor` 为核心的录制流水线
 - 一个以 Angular 模块化页面 + REST/WebSocket 为交互面的前端
-- 一个把前端构建产物内嵌进 Python 包的交付方式
+- 一套把前端构建产物内嵌进 Python 包，并可继续封装为独立二进制或容器的交付方式
 
 它的设计重点不是“层数很多”，而是把长期运行录制系统真正需要的能力拆清楚了：任务编排、稳定录制、后处理、实时反馈、配置覆盖、异常上报和空间治理。
