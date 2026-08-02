@@ -26,6 +26,7 @@ class VideoProfile(TypedDict, total=False):
     codec_type: Literal['video']
     codec_tag_string: str
     codec_tag: str
+    profile: str
     width: int
     height: int
     coded_width: int
@@ -44,6 +45,7 @@ class VideoProfile(TypedDict, total=False):
     duration_ts: int
     duration: str
     extradata_size: int
+    extradata_hash: str
     disposition: Dict[str, int]
     tags: Dict[str, Any]
 
@@ -55,6 +57,7 @@ class AudioProfile(TypedDict, total=False):
     codec_type: Literal['audio']
     codec_tag_string: str
     codec_tag: str
+    profile: str
     sample_fmt: str
     sample_rate: str
     channels: int
@@ -68,6 +71,7 @@ class AudioProfile(TypedDict, total=False):
     duration: str
     bit_rate: str
     extradata_size: int
+    extradata_hash: str
     disposition: Dict[str, int]
     tags: Dict[str, Any]
 
@@ -95,6 +99,8 @@ def ffprobe(data: bytes) -> StreamProfile:
         'ffprobe',
         '-show_streams',
         '-show_format',
+        '-show_data_hash',
+        'sha256',
         '-print_format',
         'json',
         'pipe:0',

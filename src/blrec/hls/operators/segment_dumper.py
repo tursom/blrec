@@ -2,14 +2,14 @@
 
 import io
 from pathlib import PurePath
-from typing import Callable, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import attr
 from loguru import logger
 from reactivex import Observable, Subject, abc
 from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposable
 
-from blrec.utils.ffprobe import ffprobe
+from blrec.utils.ffprobe import StreamProfile, ffprobe
 
 from .segment_fetcher import InitSectionData, SegmentData
 
@@ -87,53 +87,80 @@ class SegmentDumper:
     def _must_split_file(
         self, prev_init_item: Optional[InitSectionData], curr_init_item: InitSectionData
     ) -> bool:
-        # init section 描述编解码参数；内容变化时新分片不能安全追加到旧容器。
         if prev_init_item is None:
-            curr_profile = ffprobe(curr_init_item.payload)
-            logger.debug(f'current init section profile: {curr_profile}')
+            try:
+                curr_profile = ffprobe(curr_init_item.payload)
+            except Exception as e:
+                logger.warning(f'Failed to probe current init section: {repr(e)}')
+            else:
+                logger.debug(f'current init section profile: {curr_profile}')
             return True
 
-        prev_profile = ffprobe(prev_init_item.payload)
+        try:
+            prev_profile = ffprobe(prev_init_item.payload)
+            curr_profile = ffprobe(curr_init_item.payload)
+        except Exception as e:
+            logger.warning(
+                f'Failed to compare init section profiles, splitting file: {repr(e)}'
+            )
+            return True
+
         logger.debug(f'previous init section profile: {prev_profile}')
-        curr_profile = ffprobe(curr_init_item.payload)
         logger.debug(f'current init section profile: {curr_profile}')
+        prev_fingerprint = self._profile_fingerprint(prev_profile)
+        curr_fingerprint = self._profile_fingerprint(curr_profile)
+        if prev_fingerprint is None or curr_fingerprint is None:
+            logger.warning('Incomplete init section profile, splitting file')
+            return True
+        if prev_fingerprint != curr_fingerprint:
+            logger.warning('Init section track parameters changed')
+            return True
 
-        if prev_init_item.payload == curr_init_item.payload:
-            logger.debug('the current init section is identical to the previous one')
-            return False
+        logger.debug('Init section changed but track parameters remain compatible')
+        return False
 
-        prev_video_profile = prev_profile['streams'][0]
-        prev_audio_profile = prev_profile['streams'][1]
-        assert prev_video_profile['codec_type'] == 'video'
-        assert prev_audio_profile['codec_type'] == 'audio'
+    def _profile_fingerprint(
+        self, profile: StreamProfile
+    ) -> Optional[Tuple[Tuple[Any, ...], ...]]:
+        streams = profile.get('streams', [])
+        if not streams:
+            return None
 
-        curr_video_profile = curr_profile['streams'][0]
-        curr_audio_profile = curr_profile['streams'][1]
-        assert curr_video_profile['codec_type'] == 'video'
-        assert curr_audio_profile['codec_type'] == 'audio'
+        fingerprints = []
+        for stream in streams:
+            fingerprint = self._stream_fingerprint(stream)
+            if fingerprint is None:
+                return None
+            fingerprints.append(fingerprint)
+        return tuple(sorted(fingerprints))
 
-        if (
-            prev_video_profile['codec_name'] != curr_video_profile['codec_name']
-            or prev_video_profile['width'] != curr_video_profile['width']
-            or prev_video_profile['height'] != curr_video_profile['height']
-            or prev_video_profile['coded_width'] != curr_video_profile['coded_width']
-            or prev_video_profile['coded_height'] != curr_video_profile['coded_height']
-        ):
-            logger.warning('Video parameters changed')
-
-        if (
-            prev_audio_profile['codec_name'] != curr_audio_profile['codec_name']
-            or prev_audio_profile['channels'] != curr_audio_profile['channels']
-            or prev_audio_profile['sample_rate'] != curr_audio_profile['sample_rate']
-            or prev_audio_profile.get('bit_rate') != curr_audio_profile.get('bit_rate')
-        ):
-            logger.warning('Audio parameters changed')
-
-        logger.debug(
-            'must split the file '
-            'because the current init section is not identical to the previous one'
+    def _stream_fingerprint(self, stream: Dict[str, Any]) -> Optional[Tuple[Any, ...]]:
+        codec_type = stream.get('codec_type')
+        common_fields = (
+            'id',
+            'codec_name',
+            'codec_tag_string',
+            'profile',
+            'time_base',
+            'extradata_hash',
         )
-        return True
+        if codec_type == 'video':
+            specific_fields = (
+                'level',
+                'width',
+                'height',
+                'coded_width',
+                'coded_height',
+            )
+        elif codec_type == 'audio':
+            specific_fields = ('sample_rate', 'channels', 'channel_layout')
+        else:
+            return None
+
+        fields = common_fields + specific_fields
+        if any(stream.get(field) is None for field in fields):
+            return None
+        return (codec_type, *(stream[field] for field in fields))
 
     def _need_split_file(self, item: Union[InitSectionData, SegmentData]) -> bool:
         return item.segment.custom_parser_values.get('split', False)
