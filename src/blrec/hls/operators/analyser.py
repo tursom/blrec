@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional, Union
 
 import attr
+from loguru import logger
 from reactivex import Observable, abc
 from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposable
 
@@ -45,10 +46,28 @@ class Analyser:
         self._video_height: int = 0
 
     def _on_profile_updated(self, profile: StreamProfile) -> None:
-        video_profile = profile['streams'][0]
-        assert video_profile['codec_type'] == 'video'
-        self._video_width = video_profile['width']
-        self._video_height = video_profile['height']
+        video_profile = next(
+            (
+                stream
+                for stream in profile.get('streams', [])
+                if stream.get('codec_type') == 'video'
+            ),
+            None,
+        )
+        if video_profile is None:
+            logger.warning('No video stream found in HLS profile')
+            self._reset()
+            return
+
+        width = video_profile.get('width')
+        height = video_profile.get('height')
+        if not isinstance(width, int) or not isinstance(height, int):
+            logger.warning('Video dimensions missing from HLS profile')
+            self._reset()
+            return
+
+        self._video_width = width
+        self._video_height = height
 
     def make_metadata(self) -> MetaData:
         return MetaData(

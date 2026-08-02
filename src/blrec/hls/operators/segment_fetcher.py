@@ -58,6 +58,8 @@ class SegmentData:
 
 
 class SegmentFetcher:
+    _MAX_INIT_SECTION_DOWNLOADS = 3
+
     def __init__(
         self,
         live: Live,
@@ -105,8 +107,8 @@ class SegmentFetcher:
                         url = seg.init_section.absolute_uri
                         data = self._fetch_segment(url)
                         data_operation_id = self._last_segment_operation_id
-                        # 初始化段没有服务端校验值，连续两次内容相同才接受。
-                        while True:
+                        # 初始化段没有服务端校验值，最多下载三次并要求相邻两次相同。
+                        for _ in range(self._MAX_INIT_SECTION_DOWNLOADS - 1):
                             time.sleep(1)
                             if (_data := self._fetch_segment(url)) == data:
                                 self._record_segment_success(
@@ -131,6 +133,8 @@ class SegmentFetcher:
                                 )
                                 data = _data
                                 data_operation_id = self._last_segment_operation_id
+                        else:
+                            raise SegmentDataCorrupted(url)
                         observer.on_next(InitSectionData(segment=seg, payload=data))
                     last_segment = seg
 
