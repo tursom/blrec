@@ -1,48 +1,129 @@
-name: CI to GHCR
+name: Build GHCR image
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - master
+  workflow_call:
+    inputs:
+      publish:
+        description: Push the built image to GHCR
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: Stable release tag to publish with latest
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ghcr-${{ github.ref }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
 
 jobs:
-
   build:
-    runs-on: ubuntu-latest
+    name: Build linux/amd64 and linux/arm64
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v2.3.5
+        uses: actions/checkout@v7
+
+      - name: Resolve image tags
+        id: config
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/blrec"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            publish=true
+            tags="${image}:edge"
+            primary_ref="${image}:edge"
+          elif [[ "${REQUESTED_PUBLISH}" == "true" ]]; then
+            if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "A published release image requires a vX.Y.Z tag" >&2
+              exit 1
+            fi
+            publish=true
+            tags="${image}:${RELEASE_TAG}"$'\n'"${image}:latest"
+            primary_ref="${image}:${RELEASE_TAG}"
+          else
+            publish=false
+            tags="${image}:validation-${GITHUB_SHA}"
+            primary_ref="${image}:validation-${GITHUB_SHA}"
+          fi
+
+          echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+          echo "primary_ref=${primary_ref}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "tags<<EOF"
+            echo "${tags}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v4
 
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
-      - name: Login to ghcr
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v1
+      - name: Log in to GHCR
+        if: steps.config.outputs.publish == 'true'
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
-      - name: Build and push
-        id: docker_build
-        uses: docker/build-push-action@v2
+      - name: Build and optionally push
+        id: build
+        uses: docker/build-push-action@v7
         with:
-          context: ./
+          context: .
           file: ./Dockerfile
-          builder: ${{ steps.buildx.outputs.name }}
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/blrec:latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.config.outputs.publish == 'true' }}
+          tags: ${{ steps.config.outputs.tags }}
+          cache-from: type=gha,scope=ghcr
+          cache-to: type=gha,mode=max,scope=ghcr
 
-      - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+      - name: Verify published manifest
+        if: steps.config.outputs.publish == 'true'
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          PRIMARY_REF: ${{ steps.config.outputs.primary_ref }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$(docker buildx imagetools inspect --raw "${PRIMARY_REF}")"
+          platforms="$(jq -r '[.manifests[].platform | select(.os == "linux") | .architecture] | unique | sort | join(",")' <<< "${manifest}")"
+          if [[ "${platforms}" != "amd64,arm64" ]]; then
+            echo "Unexpected published platforms for ${PRIMARY_REF}: ${platforms}" >&2
+            exit 1
+          fi
+
+          published_digest="$(docker buildx imagetools inspect "${PRIMARY_REF}" --format '{{.Manifest.Digest}}')"
+          if [[ "${published_digest}" != "${BUILD_DIGEST}" ]]; then
+            echo "Published digest ${published_digest} does not match build digest ${BUILD_DIGEST}" >&2
+            exit 1
+          fi
+
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            latest_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER}/blrec:latest"
+            latest_digest="$(docker buildx imagetools inspect "${latest_ref}" --format '{{.Manifest.Digest}}')"
+            if [[ "${latest_digest}" != "${published_digest}" ]]; then
+              echo "${PRIMARY_REF} and ${latest_ref} do not point to the same manifest" >&2
+              exit 1
+            fi
+          fi
+
+          echo "Published ${PRIMARY_REF} at ${published_digest} for linux/amd64 and linux/arm64"

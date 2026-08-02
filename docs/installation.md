@@ -10,9 +10,12 @@ PyPI 上的 `blrec` 是原作者发布的历史版本，不包含本仓库后续
 
 | 平台 | 计划发行物 | ffmpeg/ffprobe |
 | --- | --- | --- |
-| Windows x64 | GitHub Release PyInstaller 压缩包 | 包内提供 |
-| Linux amd64 | GitHub Release PyInstaller 压缩包 | 通过系统安装 |
-| Linux arm64 | GitHub Release PyInstaller 压缩包 | 通过系统安装 |
+| Windows x64 | `blrec-vX.Y.Z-windows-x64.zip` | 包内提供 |
+| macOS 14+ arm64 | `blrec-vX.Y.Z-macos-arm64.tar.gz` | 通过 Homebrew 安装 |
+| Linux amd64 glibc 2.28+ | `blrec-vX.Y.Z-linux-amd64-glibc.tar.gz` | 通过系统安装 |
+| Linux amd64 musl 1.2+ | `blrec-vX.Y.Z-linux-amd64-musl.tar.gz` | 通过系统安装 |
+| Linux arm64 glibc 2.28+ | `blrec-vX.Y.Z-linux-arm64-glibc.tar.gz` | 通过系统安装 |
+| Linux arm64 musl 1.2+ | `blrec-vX.Y.Z-linux-arm64-musl.tar.gz` | 通过系统安装 |
 | Linux amd64/arm64 | `ghcr.io/tursom/blrec` 容器镜像 | 镜像内提供 |
 
 在首个维护版本发布前，如需验证仓库当前代码，请按[开发指南](development.md)从源码运行。
@@ -30,6 +33,25 @@ PyPI 上的 `blrec` 是原作者发布的历史版本，不包含本仓库后续
 
 Windows 压缩包会同时提供 `ffmpeg` 和 `ffprobe`。不要只移动可执行文件；升级前也应保留完整目录结构。
 
+### macOS arm64
+
+macOS 二进制要求 Apple Silicon 和 macOS 14 或更高版本。先安装 Homebrew，并安装 ffmpeg：
+
+```bash
+brew install ffmpeg
+ffmpeg -version
+ffprobe -version
+```
+
+下载 `blrec-vX.Y.Z-macos-arm64.tar.gz` 后解压，进入解压生成的目录并运行：
+
+```bash
+chmod +x blrec
+./blrec
+```
+
+当前二进制使用临时签名，没有 Developer ID 签名或 Apple 公证。首次启动若被 Gatekeeper 阻止，请在“系统设置 > 隐私与安全性”中确认该文件来自本项目的 GitHub Release 后选择“仍要打开”。
+
 ### Linux amd64/arm64
 
 先通过系统包管理器安装 `ffmpeg`，并确认以下命令均可执行：
@@ -39,7 +61,9 @@ ffmpeg -version
 ffprobe -version
 ```
 
-然后从 [GitHub Releases](https://github.com/tursom/blrec/releases) 下载与系统架构匹配的压缩包，解压并赋予主程序执行权限：
+然后从 [GitHub Releases](https://github.com/tursom/blrec/releases) 下载与系统架构和 C 运行库匹配的压缩包。Debian、Ubuntu、RHEL 等常见发行版选择 `glibc`，最低要求 glibc 2.28；Alpine 3.13 或更新版本选择 `musl`。不要在两种 ABI 之间混用二进制。
+
+解压后进入压缩包生成的目录，并赋予主程序执行权限：
 
 ```bash
 chmod +x blrec
@@ -50,7 +74,7 @@ chmod +x blrec
 
 ## 使用 Docker
 
-正式镜像地址为 `ghcr.io/tursom/blrec`。首个社区维护版本发布后，每次正式发布同时提供不可变的 `vX.Y.Z` 标签和滚动更新的 `latest` 标签。
+正式镜像地址为 `ghcr.io/tursom/blrec`。首个社区维护版本发布后，每次正式发布同时提供不可变的 `vX.Y.Z` 标签和指向最新正式版的 `latest` 标签。`edge` 随 master 更新，只用于验证开发快照，不应用于生产部署。
 
 生产环境建议固定版本标签。下面的 `<version>` 表示包含前导 `v` 的版本，例如 `v2.0.0`：
 

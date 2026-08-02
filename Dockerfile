@@ -18,7 +18,7 @@ COPY README.md MANIFEST.in pyproject.toml setup.py setup.cfg blrec.spec ./
 COPY src ./src
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir . pyinstaller && \
+    pip install --no-cache-dir . pyinstaller==6.21.0 && \
     pyinstaller --clean --noconfirm blrec.spec
 
 FROM alpine

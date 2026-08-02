@@ -8,7 +8,7 @@
 
 PyPI 上的 `blrec` 属于原作者的历史发行，不是社区维护版的发布渠道。Docker Hub 也不再作为本项目的镜像入口。
 
-当前工作流与目标发行契约仍有差距：现有 Windows portable 工作流不是 PyInstaller 构建，GHCR 工作流只推送 `latest`。发布首个维护版本前必须先完成并验证相应的自动化改造。
+发布工作流已按目标发行契约改造，但在首次手动预演和正式 tag 构建完成前，不能把这些产物写成已验证可用。正式 tag 只接受与源码版本一致的稳定版 `vX.Y.Z`；beta 或 rc 版本只能通过手动预演构建。
 
 ## 发行契约
 
@@ -19,10 +19,14 @@ PyPI 上的 `blrec` 属于原作者的历史发行，不是社区维护版的发
 | 目标 | 发行物或标签 | 依赖约定 |
 | --- | --- | --- |
 | Windows x64 | `blrec-vX.Y.Z-windows-x64.zip` | 包含 blrec、ffmpeg 和 ffprobe |
-| Linux amd64 | `blrec-vX.Y.Z-linux-amd64.tar.gz` | 系统提供 ffmpeg 和 ffprobe |
-| Linux arm64 | `blrec-vX.Y.Z-linux-arm64.tar.gz` | 系统提供 ffmpeg 和 ffprobe |
+| macOS arm64 | `blrec-vX.Y.Z-macos-arm64.tar.gz` | macOS 14+；系统提供 ffmpeg 和 ffprobe |
+| Linux amd64 glibc | `blrec-vX.Y.Z-linux-amd64-glibc.tar.gz` | glibc 2.28+；系统提供 ffmpeg 和 ffprobe |
+| Linux amd64 musl | `blrec-vX.Y.Z-linux-amd64-musl.tar.gz` | musl 1.2+；系统提供 ffmpeg 和 ffprobe |
+| Linux arm64 glibc | `blrec-vX.Y.Z-linux-arm64-glibc.tar.gz` | glibc 2.28+；系统提供 ffmpeg 和 ffprobe |
+| Linux arm64 musl | `blrec-vX.Y.Z-linux-arm64-musl.tar.gz` | musl 1.2+；系统提供 ffmpeg 和 ffprobe |
 | Linux amd64/arm64 | `ghcr.io/tursom/blrec:vX.Y.Z` | 镜像内提供 ffmpeg 和 ffprobe |
 | 最新正式版 | `ghcr.io/tursom/blrec:latest` | 与最新版本标签指向相同构建 |
+| master 开发快照 | `ghcr.io/tursom/blrec:edge` | 每次 master push 更新，不属于正式发行 |
 
 同一版本的二进制、镜像和源码必须来自同一个 Git commit。不要从不同 workflow run 拼接一次发布。
 
@@ -34,20 +38,21 @@ PyPI 上的 `blrec` 属于原作者的历史发行，不是社区维护版的发
 4. 检查 README、安装指南和发行状态提示是否与本次发布一致。
 5. 构建前端，确认生成资源来自当前 `webapp/src`。
 6. 运行与改动范围匹配的后端、前端和静态检查。
-7. 本地构建 PyInstaller 程序和容器镜像，完成最小启动验证。
+7. 手动触发发布工作流预演，构建全部二进制和容器镜像但不推送任何发行物。
+8. 下载六个 Actions artifacts，核对平台、ABI、版本和最小启动检查。
 
 版本号、Git tag、压缩包文件名和镜像标签必须一致。若任一目标平台未通过验证，应停止发布，而不是只发布部分平台却保留完整平台承诺。
 
 ## 创建发行物
 
-从已验证的 commit 创建并推送带签名或受保护的版本 tag。发布工作流应使用该 tag 构建三个 PyInstaller 压缩包，并推送两个架构的 GHCR 镜像。
+从已验证的 commit 创建并推送带签名或受保护的版本 tag。发布工作流使用该 tag 构建六个 PyInstaller 压缩包；全部二进制成功后，再推送两个架构的 GHCR 镜像并创建 GitHub Release。
 
-Windows 压缩包应携带可用的 `ffmpeg` 和 `ffprobe`。Linux 压缩包不携带它们，Release 说明和安装文档必须列出系统依赖。
+Windows 压缩包应携带可用的 `ffmpeg`、`ffprobe`、shared build 所需 DLL 和 FFmpeg 许可证。macOS 与 Linux 压缩包不携带它们，Release 说明和安装文档必须列出系统依赖。macOS 产物只提供 arm64 临时签名版本，不包含 Developer ID 签名或 Apple 公证。
 
 发布页面应包含：
 
 - 版本变更摘要和完整 CHANGELOG 链接
-- 三个平台压缩包及其校验值
+- 六个平台压缩包及统一的 `SHA256SUMS`
 - GHCR 的版本标签和 `latest` 标签
 - 已知问题、兼容性或迁移提示
 
@@ -61,7 +66,9 @@ Windows 压缩包应携带可用的 `ffmpeg` 和 `ffprobe`。Linux 压缩包不�
 2. 运行 `blrec --version` 和 `blrec --help`。
 3. 使用临时设置、日志和输出目录启动服务。
 4. 访问 Web 首页和 `/docs`。
-5. 确认 Windows 能找到包内 ffmpeg，Linux 能找到系统 ffmpeg。
+5. 确认 Windows 能找到包内 ffmpeg，macOS 和 Linux 能找到系统 ffmpeg。
+6. 确认 macOS 产物为 arm64、可通过临时签名校验，并记录 Gatekeeper 首次运行验证结果。
+7. 确认 glibc 产物可在 glibc 2.28 基线上启动，musl 产物可在 Alpine 3.13 基线上启动。
 
 对 GHCR 执行以下检查：
 
@@ -76,7 +83,7 @@ Windows 压缩包应携带可用的 `ffmpeg` 和 `ffprobe`。Linux 压缩包不�
 
 发行物存在严重问题时，应先在 Release 说明中标记问题，并停止推荐对应版本。不要覆盖已经发布的版本标签或复用同一个版本号构建不同内容。
 
-镜像回滚通过重新指向 `latest` 完成，原有 `vX.Y.Z` 标签保持不可变。修复后发布新的补丁版本，并在 CHANGELOG 中记录影响和迁移方式。
+镜像回滚通过重新指向 `latest` 完成，原有 `vX.Y.Z` 标签保持不可变。`edge` 始终跟随 master，不参与正式版回滚。修复后发布新的补丁版本，并在 CHANGELOG 中记录影响和迁移方式。
 
 ## 文档与支持检查
 

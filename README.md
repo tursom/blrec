@@ -37,7 +37,8 @@
 | --- | --- | --- |
 | 服务器部署 | `ghcr.io/tursom/blrec` 容器镜像 | 待首个维护版本发布 |
 | Windows x64 | GitHub Release 中的 PyInstaller 压缩包 | 待首个维护版本发布 |
-| Linux amd64/arm64 | GitHub Release 中的 PyInstaller 压缩包 | 待首个维护版本发布 |
+| macOS arm64 | GitHub Release 中的 PyInstaller 压缩包 | 待首个维护版本发布 |
+| Linux amd64/arm64 | GitHub Release 中的 glibc 或 musl PyInstaller 压缩包 | 待首个维护版本发布 |
 
 完整的安装、运行、升级和卸载说明见[安装与使用](docs/installation.md)。参与开发时，请从源码安装并阅读[开发指南](docs/development.md)。
 

@@ -486,7 +486,7 @@ sequenceDiagram
 
 根目录的 `blrec.spec` 以 `src/blrec/__main__.py` 为入口，收集 blrec 的数据文件和 Uvicorn 等运行时动态模块。
 
-PyInstaller 产物包含 Python 应用及已构建的前端资源。计划中的 GitHub Release 会分别提供 Windows x64、Linux amd64 和 Linux arm64 压缩包；首个维护版本发布前，这些产物仍属于目标发行形态。
+PyInstaller 产物包含 Python 应用及已构建的前端资源。计划中的 GitHub Release 会提供 Windows x64、macOS arm64，以及 Linux amd64/arm64 的 glibc 与 musl 压缩包；首个维护版本发布前，这些产物仍属于目标发行形态。
 
 ### 9.4 容器镜像
 

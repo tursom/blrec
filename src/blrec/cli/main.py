@@ -112,7 +112,11 @@ def main() -> int:
         cli()
     except KeyboardInterrupt:
         return 1
-    except SystemExit:
+    except SystemExit as e:
+        if e.code is None:
+            return 0
+        if isinstance(e.code, int):
+            return e.code
         return 1
     except BaseException as e:
         logger.exception(e)

@@ -8,7 +8,6 @@ source_root = project_root / 'src'
 
 datas = collect_data_files('blrec')
 hiddenimports = collect_submodules('blrec') + [
-    'uvicorn.lifespan.auto',
     'uvicorn.lifespan.off',
     'uvicorn.lifespan.on',
     'uvicorn.loops.asyncio',
