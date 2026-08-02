@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import time
+import uuid
 from abc import ABC
 from datetime import datetime
 from typing import Any, Dict, Final, List, Mapping, Optional
@@ -12,8 +13,9 @@ import aiohttp
 from loguru import logger
 from tenacity import retry, stop_after_delay, wait_exponential
 
-from .exceptions import ApiRequestError
+from ..http_history import HttpHistoryStore, record_http_exchange
 from . import wbi
+from .exceptions import ApiRequestError
 from .typing import JsonResponse, QualityNumber, ResponseData
 
 __all__ = 'AppApi', 'WebApi'
@@ -40,8 +42,11 @@ class BaseApi(ABC):
         headers: Optional[Dict[str, str]] = None,
         *,
         room_id: Optional[int] = None,
+        http_history: Optional[HttpHistoryStore] = None,
     ):
         self._logger = logger.bind(room_id=room_id or '')
+        self._room_id = room_id
+        self._http_history = http_history
 
         self.base_api_urls: List[str] = ['https://api.bilibili.com']
         self.base_live_api_urls: List[str] = ['https://api.live.bilibili.com']
@@ -69,31 +74,81 @@ class BaseApi(ABC):
     @retry(reraise=True, stop=stop_after_delay(5), wait=wait_exponential(0.1))
     async def _get_json_res(self, *args: Any, **kwds: Any) -> JsonResponse:
         should_check_response = kwds.pop('check_response', True)
-        kwds = {'timeout': self.timeout, 'headers': self.headers, **kwds}
-        async with self._session.get(*args, **kwds) as res:
-            self._logger.trace('Request: {}', res.request_info)
-            self._logger.trace('Response: {}', await res.text())
-            try:
-                json_res = await res.json()
-            except aiohttp.ContentTypeError:
+        operation_id = kwds.pop('_history_operation_id', None)
+        parent_operation_id = kwds.pop('_history_parent_operation_id', None)
+        kwds = {
+            'timeout': self.timeout,
+            'headers': self.headers,
+            'raise_for_status': False,
+            **kwds,
+        }
+        started_at = time.perf_counter()
+        requested_url = str(args[0]) if args else str(kwds.get('url', ''))
+        response_status = None
+        response_headers: Mapping[str, Any] = {}
+        response_body: Any = None
+        request_headers: Mapping[str, Any] = self.headers
+        error: Optional[BaseException] = None
+        try:
+            async with self._session.get(*args, **kwds) as res:
+                requested_url = str(res.request_info.real_url)
+                request_headers = res.request_info.headers
+                response_status = res.status
+                response_headers = res.headers
                 text_res = await res.text()
-                self._logger.debug(f'Response text: {text_res[:200]}')
-                raise
-            if should_check_response:
-                self._check_response(json_res)
+                response_body = text_res
+                self._logger.trace('Request: {}', res.request_info)
+                self._logger.trace('Response: {}', text_res)
+                res.raise_for_status()
+                json_res = await res.json()
+                response_body = json_res
+                if should_check_response:
+                    self._check_response(json_res)
+        except aiohttp.ContentTypeError as exc:
+            response_body = text_res
+            self._logger.debug(f'Response text: {text_res[:200]}')
+            error = exc
+            raise
+        except Exception as exc:
+            error = exc
+            raise
+        else:
             return json_res
+        finally:
+            record_http_exchange(
+                self._http_history,
+                room_id=self._room_id,
+                category='api',
+                method='GET',
+                url=requested_url,
+                request_headers=request_headers,
+                response_status=response_status,
+                response_headers=response_headers,
+                response_body=response_body,
+                error=error,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                operation_id=operation_id,
+                parent_operation_id=parent_operation_id,
+            )
 
     async def _get_json(
         self, base_urls: List[str], path: str, *args: Any, **kwds: Any
     ) -> JsonResponse:
         if not base_urls:
             raise ValueError('No base urls')
+        parent_operation_id = uuid.uuid4().hex
         # 普通接口按配置顺序尝试域名，成功后立即返回，避免重复请求。
         exception = None
         for base_url in base_urls:
             url = base_url + path
             try:
-                return await self._get_json_res(url, *args, **kwds)
+                return await self._get_json_res(
+                    url,
+                    *args,
+                    **kwds,
+                    _history_operation_id=uuid.uuid4().hex,
+                    _history_parent_operation_id=parent_operation_id,
+                )
             except Exception as exc:
                 exception = exc
                 self._logger.trace('Failed to get json from {}: {}', url, repr(exc))
@@ -106,9 +161,19 @@ class BaseApi(ABC):
     ) -> List[JsonResponse]:
         if not base_urls:
             raise ValueError('No base urls')
+        parent_operation_id = uuid.uuid4().hex
         # 播放信息需要汇总多个域名的 CDN 结果，因此并发请求并保留全部成功响应。
         urls = [base_url + path for base_url in base_urls]
-        aws = (self._get_json_res(url, *args, **kwds) for url in urls)
+        aws = (
+            self._get_json_res(
+                url,
+                *args,
+                **kwds,
+                _history_operation_id=uuid.uuid4().hex,
+                _history_parent_operation_id=parent_operation_id,
+            )
+            for url in urls
+        )
         results = await asyncio.gather(*aws, return_exceptions=True)
         exceptions = []
         json_responses = []

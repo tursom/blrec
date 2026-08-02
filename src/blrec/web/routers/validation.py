@@ -3,8 +3,6 @@ import os
 
 from fastapi import APIRouter, Body
 
-from blrec.bili.helpers import get_nav
-
 from ...application import Application
 from ..schemas import ResponseMessage
 
@@ -27,7 +25,7 @@ async def validate_dir(path: str = Body(..., embed=True)) -> ResponseMessage:
 @router.post('/cookie', response_model=ResponseMessage)
 async def validate_cookie(cookie: str = Body(..., embed=True)) -> ResponseMessage:
     """Check if the cookie is valid"""
-    json_res = await get_nav(cookie)
+    json_res = await app.validate_cookie(cookie)
     return ResponseMessage(
         code=json_res['code'], message=json_res['message'], data=json_res['data']
     )

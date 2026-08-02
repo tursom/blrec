@@ -20,6 +20,7 @@ from blrec.event.event_submitters import (
 )
 from blrec.flv.metadata_injection import InjectingProgress
 from blrec.flv.operators import StreamProfile
+from blrec.http_history import HttpHistoryStore
 from blrec.postprocess import DeleteStrategy, Postprocessor, PostprocessorStatus
 from blrec.postprocess.remux import RemuxingProgress
 from blrec.setting.typing import RecordingMode
@@ -54,10 +55,11 @@ class RecordTask:
         remux_to_mp4: bool = False,
         inject_extra_metadata: bool = True,
         delete_source: DeleteStrategy = DeleteStrategy.AUTO,
+        http_history: Optional[HttpHistoryStore] = None,
     ) -> None:
         super().__init__()
 
-        self._live = Live(room_id, user_agent, cookie)
+        self._live = Live(room_id, user_agent, cookie, http_history=http_history)
 
         self._room_id = room_id
         self._out_dir = out_dir

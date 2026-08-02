@@ -124,6 +124,12 @@ export interface LoggingSettings {
   backupCount: number;
 }
 
+export interface HttpHistorySettings {
+  enabled: boolean;
+  retentionDays: number;
+  maxSize: number;
+}
+
 export interface SpaceSettings {
   /** 磁盘检查间隔，单位秒；0 表示禁用检查。 */
   checkInterval: number;
@@ -402,6 +408,7 @@ export interface Settings {
   tasks: TaskSettings[];
   output: OutputSettings;
   logging: LoggingSettings;
+  httpHistory: HttpHistorySettings;
   biliApi: BiliApiSettings;
   header: HeaderSettings;
   danmaku: DanmakuSettings;

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Optional, Union
+from urllib.parse import urlsplit
 
 import attr
 import m3u8
@@ -24,9 +27,10 @@ from tenacity import (
 
 from blrec.bili.live import Live
 from blrec.core import operators as core_ops
+from blrec.exception.helpers import format_exception
+from blrec.http_history import record_http_exchange
 from blrec.utils import operators as utils_ops
 from blrec.utils.hash import cksum
-from blrec.exception.helpers import format_exception
 
 from ..exceptions import FetchSegmentError, SegmentDataCorrupted
 
@@ -63,6 +67,8 @@ class SegmentFetcher:
         self._live = live
         self._session = session
         self._stream_url_resolver = stream_url_resolver
+        self._segment_summaries = {}
+        self._last_segment_operation_id: Optional[str] = None
 
     def __call__(
         self, source: Observable[m3u8.Segment]
@@ -98,10 +104,17 @@ class SegmentFetcher:
                     ):
                         url = seg.init_section.absolute_uri
                         data = self._fetch_segment(url)
+                        data_operation_id = self._last_segment_operation_id
                         # 初始化段没有服务端校验值，连续两次内容相同才接受。
                         while True:
                             time.sleep(1)
                             if (_data := self._fetch_segment(url)) == data:
+                                self._record_segment_success(
+                                    url, len(data), data_operation_id
+                                )
+                                self._record_segment_success(
+                                    url, len(_data), self._last_segment_operation_id
+                                )
                                 logger.debug(
                                     'Init section checked: '
                                     f'crc32 of previous data: {cksum(data)}, '
@@ -117,6 +130,7 @@ class SegmentFetcher:
                                     f'init section url: {url}'
                                 )
                                 data = _data
+                                data_operation_id = self._last_segment_operation_id
                         observer.on_next(InitSectionData(segment=seg, payload=data))
                     last_segment = seg
 
@@ -126,7 +140,11 @@ class SegmentFetcher:
                     size = int(hex_size, 16)
                     for _ in range(3):
                         data = self._fetch_segment(url)
+                        operation_id = self._last_segment_operation_id
                         if len(data) != size:
+                            self._record_segment_validation_error(
+                                url, 'length', size, len(data), operation_id
+                            )
                             logger.debug(
                                 'Segment data incomplete: '
                                 f'size expected: {size}, '
@@ -136,6 +154,9 @@ class SegmentFetcher:
                             continue
                         crc32_of_data = cksum(data)
                         if crc32_of_data != crc32:
+                            self._record_segment_validation_error(
+                                url, 'crc32', crc32, crc32_of_data, operation_id
+                            )
                             logger.debug(
                                 'Segment data corrupted: '
                                 f'correct crc32: {crc32}, '
@@ -143,6 +164,7 @@ class SegmentFetcher:
                                 f'segment url: {url}'
                             )
                             continue
+                        self._record_segment_success(url, len(data), operation_id)
                         break
                     else:
                         raise SegmentDataCorrupted(url)
@@ -163,6 +185,7 @@ class SegmentFetcher:
                 nonlocal last_segment
                 disposed = True
                 last_segment = None
+                self._flush_segment_summaries()
 
             subscription.disposable = source.subscribe(
                 on_next, observer.on_error, observer.on_completed, scheduler=scheduler
@@ -171,6 +194,12 @@ class SegmentFetcher:
             return CompositeDisposable(subscription, Disposable(dispose))
 
         return Observable(subscribe)
+
+    def _fetch_segment(self, url: str) -> bytes:
+        operation_id = uuid.uuid4().hex
+        data = self._fetch_segment_with_retry(url, operation_id)
+        self._last_segment_operation_id = operation_id
+        return data
 
     @retry(
         reraise=True,
@@ -183,15 +212,99 @@ class SegmentFetcher:
         wait=wait_exponential(max=10),
         stop=stop_after_delay(60),
     )
-    def _fetch_segment(self, url: str) -> bytes:
+    def _fetch_segment_with_retry(self, url: str, operation_id: str) -> bytes:
+        started_at = time.perf_counter()
         try:
             response = self._session.get(url, headers=self._live.headers, timeout=5)
             response.raise_for_status()
         except Exception as e:
+            failed_response = getattr(e, 'response', None)
+            record_http_exchange(
+                self._live.http_history,
+                room_id=self._live.room_id,
+                category='hls_segment',
+                method='GET',
+                url=url,
+                request_headers=self._live.headers,
+                response_status=getattr(failed_response, 'status_code', None),
+                response_headers=getattr(failed_response, 'headers', None),
+                error=e,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                operation_id=operation_id,
+            )
             logger.debug(f'Failed to fetch segment {url}: {repr(e)}')
             raise
         else:
             return response.content
+
+    def _record_segment_success(
+        self, url: str, size: int, operation_id: Optional[str] = None
+    ) -> None:
+        host = urlsplit(url).hostname or ''
+        now = time.monotonic()
+        summary = self._segment_summaries.setdefault(
+            host,
+            {
+                'started_at': datetime.now(timezone.utc).isoformat(),
+                'started_monotonic': now,
+                'count': 0,
+                'bytes': 0,
+                'url': url,
+                'operation_ids': [],
+            },
+        )
+        summary['count'] += 1
+        summary['bytes'] += size
+        if operation_id is not None:
+            summary['operation_ids'].append(operation_id)
+        if now - summary['started_monotonic'] >= 60:
+            self._flush_segment_summaries(host)
+
+    def _flush_segment_summaries(self, host: Optional[str] = None) -> None:
+        hosts = [host] if host is not None else list(self._segment_summaries)
+        for item_host in hosts:
+            summary = self._segment_summaries.pop(item_host, None)
+            if not summary or not summary['count']:
+                continue
+            if self._live.http_history is not None:
+                self._live.http_history.record(
+                    {
+                        'record_type': 'hls_segment_summary',
+                        'room_id': self._live.room_id,
+                        'category': 'hls_segment',
+                        'request': {'method': 'GET', 'url': summary['url']},
+                        'started_at': summary['started_at'],
+                        'ended_at': datetime.now(timezone.utc).isoformat(),
+                        'request_count': summary['count'],
+                        'response_bytes': summary['bytes'],
+                        'operation_ids': summary['operation_ids'],
+                    }
+                )
+
+    def _record_segment_validation_error(
+        self,
+        url: str,
+        error_type: str,
+        expected: Union[str, int],
+        actual: Union[str, int],
+        operation_id: Optional[str] = None,
+    ) -> None:
+        if self._live.http_history is None:
+            return
+        self._live.http_history.record(
+            {
+                'record_type': 'hls_segment_validation_error',
+                'room_id': self._live.room_id,
+                'category': 'hls_segment',
+                'operation_id': operation_id,
+                'request': {'method': 'GET', 'url': url},
+                'validation': {
+                    'type': error_type,
+                    'expected': expected,
+                    'actual': actual,
+                },
+            }
+        )
 
     def _should_retry(self, exc: Exception) -> bool:
         if isinstance(exc, FetchSegmentError):

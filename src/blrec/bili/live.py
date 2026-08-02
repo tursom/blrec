@@ -4,12 +4,13 @@ import asyncio
 import json
 import re
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping, Optional
 
 import aiohttp
 from jsonpath import jsonpath
 from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_exponential
 
+from ..http_history import HttpHistoryStore, record_http_exchange
 from .api import BASE_HEADERS, AppApi, WebApi
 from .exceptions import (
     LiveRoomEncrypted,
@@ -28,8 +29,9 @@ from .typing import ApiPlatform, QualityNumber, ResponseData, StreamCodec, Strea
 
 __all__ = ('Live',)
 
-from loguru import logger
 from urllib.parse import quote
+
+from loguru import logger
 
 _INFO_PATTERN = re.compile(
     rb'<script>\s*window\.__NEPTUNE_IS_MY_WAIFU__\s*=\s*(\{.*?\})\s*</script>'
@@ -40,12 +42,20 @@ _LIVE_STATUS_PATTERN = re.compile(rb'"live_status"\s*:\s*(\d)')
 class Live:
     """封装单个直播间共享的 HTTP 会话、API 客户端和信息快照。"""
 
-    def __init__(self, room_id: int, user_agent: str = '', cookie: str = '') -> None:
+    def __init__(
+        self,
+        room_id: int,
+        user_agent: str = '',
+        cookie: str = '',
+        http_history: Optional[HttpHistoryStore] = None,
+    ) -> None:
         self._logger = logger.bind(room_id=room_id)
 
         self._room_id = room_id
         self._user_agent = user_agent
         self._cookie = cookie
+        self._http_history = http_history
+        self._http_history_connection_id: Optional[str] = None
         self._update_headers()
         self._html_page_url = f'https://live.bilibili.com/{room_id}'
 
@@ -55,12 +65,28 @@ class Live:
             trust_env=True,
             timeout=timeout,
         )
-        self._appapi = AppApi(self._session, self.headers, room_id=room_id)
-        self._webapi = WebApi(self._session, self.headers, room_id=room_id)
+        self._appapi = AppApi(
+            self._session, self.headers, room_id=room_id, http_history=http_history
+        )
+        self._webapi = WebApi(
+            self._session, self.headers, room_id=room_id, http_history=http_history
+        )
 
         self._room_info: RoomInfo
         self._user_info: UserInfo
         self._no_flv_stream: bool
+
+    @property
+    def http_history(self) -> Optional[HttpHistoryStore]:
+        return self._http_history
+
+    @property
+    def http_history_connection_id(self) -> Optional[str]:
+        return self._http_history_connection_id
+
+    @http_history_connection_id.setter
+    def http_history_connection_id(self, value: Optional[str]) -> None:
+        self._http_history_connection_id = value
 
     @property
     def base_api_urls(self) -> List[str]:
@@ -107,7 +133,9 @@ class Live:
     @cookie.setter
     def cookie(self, value: str) -> None:
         # 检查 value 的非 ASCII 字符并使用 url encode 编码非 ASCII 字符
-        encoded_value = ''.join(ch if ch.isascii() else quote(ch, encoding='utf-8') for ch in value)
+        encoded_value = ''.join(
+            ch if ch.isascii() else quote(ch, encoding='utf-8') for ch in value
+        )
 
         self._cookie = encoded_value
         self._update_headers()
@@ -184,9 +212,11 @@ class Live:
 
     async def check_connectivity(self) -> bool:
         try:
-            await self._session.head('https://live.bilibili.com/', timeout=3, headers={
-                'User-Agent': self._user_agent,
-            })
+            await self._session.head(
+                'https://live.bilibili.com/',
+                timeout=3,
+                headers={'User-Agent': self._user_agent},
+            )
             return True
         except Exception as e:
             self._logger.warning(f'Check connectivity failed: {repr(e)}')
@@ -387,13 +417,23 @@ class Live:
         return room_info_data
 
     async def _get_live_status_via_html_page(self) -> int:
-        async with self._session.get(self._html_page_url) as response:
-            data = await response.read()
-
-        m = _LIVE_STATUS_PATTERN.search(data)
-        assert m is not None, data
-
-        return int(m.group(1))
+        data, status, headers, started_at = await self._request_html_page()
+        try:
+            info = self._extract_html_info(data)
+            m = _LIVE_STATUS_PATTERN.search(data)
+            assert m is not None, data
+            live_status = int(m.group(1))
+        except Exception as exc:
+            self._record_html_exchange(
+                status,
+                headers,
+                started_at,
+                body=data.decode('utf8', errors='replace'),
+                error=exc,
+            )
+            raise
+        self._record_html_exchange(status, headers, started_at, body=info)
+        return live_status
 
     async def _get_user_info_via_html_page(self) -> UserInfo:
         info_res = await self._get_room_info_res_via_html_page()
@@ -419,13 +459,81 @@ class Live:
         return info['roomInitRes']['data']
 
     async def _get_info_via_html_page(self) -> ResponseData:
-        async with self._session.get(self._html_page_url) as response:
-            data = await response.read()
+        data, status, headers, started_at = await self._request_html_page()
+        try:
+            info = self._extract_html_info(data)
+        except Exception as exc:
+            self._record_html_exchange(
+                status,
+                headers,
+                started_at,
+                body=data.decode('utf8', errors='replace'),
+                error=exc,
+            )
+            raise
+        self._record_html_exchange(status, headers, started_at, body=info)
+        return info
 
+    @staticmethod
+    def _extract_html_info(data: bytes) -> ResponseData:
         # 页面内嵌的初始化 JSON 同时包含 roomInfoRes 与 roomInitRes。
         match = _INFO_PATTERN.search(data)
         if not match:
             raise ValueError('Can not extract info from html page')
+        return json.loads(match.group(1).decode(encoding='utf8'))
 
-        string = match.group(1).decode(encoding='utf8')
-        return json.loads(string)
+    async def _request_html_page(self) -> tuple[bytes, int, Mapping[str, str], float]:
+        started_at = time.perf_counter()
+        response_status = None
+        response_headers: Mapping[str, str] = {}
+        response_body = None
+        try:
+            async with self._session.get(
+                self._html_page_url, raise_for_status=False
+            ) as response:
+                data = await response.read()
+                response_status = response.status
+                response_headers = response.headers
+                response_body = data.decode('utf8', errors='replace')
+                response.raise_for_status()
+                return data, response.status, response.headers, started_at
+        except Exception as exc:
+            record_http_exchange(
+                self._http_history,
+                room_id=self._room_id,
+                category='html',
+                method='GET',
+                url=self._html_page_url,
+                request_headers=self.headers,
+                response_status=response_status,
+                response_headers=response_headers,
+                response_body=response_body,
+                error=exc,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                max_body_size=512 * 1024,
+            )
+            raise
+
+    def _record_html_exchange(
+        self,
+        status: int,
+        headers: Mapping[str, str],
+        started_at: float,
+        *,
+        body: Any,
+        error: Optional[BaseException] = None,
+    ) -> None:
+        record_http_exchange(
+            self._http_history,
+            room_id=self._room_id,
+            category='html',
+            method='GET',
+            url=self._html_page_url,
+            request_headers=self.headers,
+            response_status=status,
+            response_headers=headers,
+            response_body=body,
+            error=error,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            max_body_size=512 * 1024,
+        )

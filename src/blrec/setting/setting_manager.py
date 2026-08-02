@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import TYPE_CHECKING, Optional, cast
 
 from ..exception import NotFoundError
@@ -278,6 +279,17 @@ class SettingsManager:
             log_dir=self._settings.logging.log_dir,
             console_log_level=self._settings.logging.console_log_level,
             backup_count=self._settings.logging.backup_count,
+        )
+        self._app._http_history.set_directory(
+            os.path.join(self._settings.logging.log_dir, 'http-history')
+        )
+
+    def apply_http_history_settings(self) -> None:
+        settings = self._settings.http_history
+        self._app._http_history.configure(
+            enabled=settings.enabled,
+            retention_days=settings.retention_days,
+            max_size=settings.max_size,
         )
 
     def apply_bili_api_settings(self) -> None:

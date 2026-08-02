@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Final, Optional
 from urllib.parse import urlparse
 
@@ -22,6 +23,7 @@ from blrec.bili.exceptions import (
 )
 from blrec.bili.live import Live
 from blrec.bili.live_monitor import LiveMonitor
+from blrec.http_history import record_http_exchange
 from blrec.utils import operators as utils_ops
 from blrec.utils.mixins import AsyncCooperationMixin
 
@@ -55,6 +57,10 @@ class StreamURLResolver(AsyncCooperationMixin):
     @property
     def stream_url(self) -> str:
         return self._stream_url
+
+    @property
+    def live(self) -> Live:
+        return self._live
 
     @property
     def stream_host(self) -> str:
@@ -130,14 +136,39 @@ class StreamURLResolver(AsyncCooperationMixin):
     def _can_resue_url(self, params: StreamParams) -> bool:
         # 参数相同仍需发起短探测，CDN URL 可能在重试期间已经过期。
         if params == self._stream_params and self._stream_url:
+            started_at = time.perf_counter()
             try:
                 response = self._session.get(
                     self._stream_url, stream=True, headers=self._live.headers, timeout=3
                 )
                 response.raise_for_status()
-            except Exception:
+            except Exception as exc:
+                response = getattr(exc, 'response', None)
+                record_http_exchange(
+                    self._live.http_history,
+                    room_id=self._live.room_id,
+                    category='stream_probe',
+                    method='GET',
+                    url=self._stream_url,
+                    request_headers=self._live.headers,
+                    response_status=getattr(response, 'status_code', None),
+                    response_headers=getattr(response, 'headers', None),
+                    error=exc,
+                    duration_ms=(time.perf_counter() - started_at) * 1000,
+                )
                 return False
             else:
+                record_http_exchange(
+                    self._live.http_history,
+                    room_id=self._live.room_id,
+                    category='stream_probe',
+                    method='GET',
+                    url=response.url,
+                    request_headers=response.request.headers,
+                    response_status=response.status_code,
+                    response_headers=response.headers,
+                    duration_ms=(time.perf_counter() - started_at) * 1000,
+                )
                 return True
         else:
             return False

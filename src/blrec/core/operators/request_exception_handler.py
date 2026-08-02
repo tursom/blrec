@@ -14,6 +14,7 @@ from reactivex import Observable, abc
 from reactivex import operators as ops
 
 from blrec.core import operators as core_ops
+from blrec.http_history import record_http_exchange
 from blrec.utils import operators as utils_ops
 
 __all__ = ('RequestExceptionHandler',)
@@ -39,6 +40,22 @@ class RequestExceptionHandler:
             scheduler: Optional[abc.SchedulerBase] = None,
         ) -> abc.DisposableBase:
             def on_error(exc: Exception) -> None:
+                response = getattr(exc, 'response', None)
+                record_http_exchange(
+                    self._stream_url_resolver.live.http_history,
+                    room_id=self._stream_url_resolver.live.room_id,
+                    category='stream_read',
+                    method='GET',
+                    url=self._stream_url_resolver.stream_url,
+                    request_headers=self._stream_url_resolver.live.headers,
+                    response_status=getattr(response, 'status_code', None),
+                    response_headers=getattr(response, 'headers', None),
+                    error=exc,
+                    parent_operation_id=(
+                        self._stream_url_resolver.live.http_history_connection_id
+                    ),
+                )
+                self._stream_url_resolver.live.http_history_connection_id = None
                 try:
                     raise exc
                 except requests.exceptions.RequestException:  # XXX: ConnectionError

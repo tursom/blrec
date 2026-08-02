@@ -19,6 +19,7 @@ from .task import RecordTask
 
 if TYPE_CHECKING:
     from ..setting import SettingsManager
+    from ..http_history import HttpHistoryStore
 
 from loguru import logger
 
@@ -38,8 +39,11 @@ __all__ = ('RecordTaskManager',)
 class RecordTaskManager:
     """拥有所有房间任务对象，并协调任务的装配、启停和销毁。"""
 
-    def __init__(self, settings_manager: SettingsManager) -> None:
+    def __init__(
+        self, settings_manager: SettingsManager, http_history: HttpHistoryStore
+    ) -> None:
         self._settings_manager = settings_manager
+        self._http_history = http_history
         self._tasks: Dict[int, RecordTask] = {}
 
     async def load_all_tasks(self) -> None:
@@ -83,7 +87,7 @@ class RecordTaskManager:
         logger.info(f'Adding task {settings.room_id}...')
 
         # 先注册占位任务，使并发查询能识别“存在但尚未 ready”的状态。
-        task = RecordTask(settings.room_id)
+        task = RecordTask(settings.room_id, http_history=self._http_history)
         self._tasks[settings.room_id] = task
 
         try:

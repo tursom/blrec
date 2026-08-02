@@ -7,6 +7,8 @@ Web 层通过 :class:`Application` 操作任务和设置，而不直接持有录
 import asyncio
 import os
 from contextlib import suppress
+from datetime import datetime
+from functools import partial
 from typing import Iterator, List, Optional
 
 import attr
@@ -14,12 +16,14 @@ import psutil
 from loguru import logger
 
 from . import __prog__, __version__
-from .bili.helpers import ensure_room_id
+from .bili.helpers import ensure_room_id, get_nav
+from .bili.typing import ResponseData
 from .core.typing import MetaData
 from .disk_space import SpaceMonitor, SpaceReclaimer
 from .event.event_submitters import SpaceEventSubmitter
 from .exception import ExceptionHandler, ExistsError, exception_callback
 from .flv.operators import StreamProfile
+from .http_history import HttpHistoryExport, HttpHistoryStatus, HttpHistoryStore
 from .notification import (
     BarkNotifier,
     EmailNotifier,
@@ -64,8 +68,16 @@ class Application:
 
     def __init__(self, settings: Settings) -> None:
         self._out_dir = settings.output.out_dir
+        self._http_history = HttpHistoryStore(
+            os.path.join(settings.logging.log_dir, 'http-history'),
+            enabled=settings.http_history.enabled,
+            retention_days=settings.http_history.retention_days,
+            max_size=settings.http_history.max_size,
+        )
         self._settings_manager = SettingsManager(self, settings)
-        self._task_manager = RecordTaskManager(self._settings_manager)
+        self._task_manager = RecordTaskManager(
+            self._settings_manager, self._http_history
+        )
 
     @property
     def info(self) -> AppInfo:
@@ -109,6 +121,8 @@ class Application:
         """装配应用级服务，并在后台恢复配置文件中的全部房间任务。"""
 
         self._setup_logger()
+        self._http_history.start()
+        self._settings_manager.apply_http_history_settings()
         logger.info('Launching Application...')
         self._setup()
         logger.debug(f'Default umask {os.umask(0o000)}')
@@ -140,6 +154,7 @@ class Application:
                 await self._loading_task
         await self._task_manager.stop_all_tasks(force=force)
         await self._task_manager.destroy_all_tasks()
+        self._http_history.close()
         self._destroy()
 
     async def restart(self) -> None:
@@ -153,7 +168,7 @@ class Application:
 
     async def add_task(self, room_id: int) -> int:
         # 短房间号只用于录入；内存索引和持久化配置始终使用真实房间号。
-        room_id = await ensure_room_id(room_id)
+        room_id = await ensure_room_id(room_id, self._http_history)
 
         if self._task_manager.has_task(room_id):
             raise ExistsError(f'a task for the room {room_id} is already existed')
@@ -306,6 +321,32 @@ class Application:
         self, room_id: int, options: TaskOptions
     ) -> TaskOptions:
         return await self._settings_manager.change_task_options(room_id, options)
+
+    async def validate_cookie(self, cookie: str) -> ResponseData:
+        return await get_nav(cookie, self._http_history)
+
+    async def get_http_history_status(self) -> HttpHistoryStatus:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._http_history.status)
+
+    async def export_http_history(
+        self,
+        *,
+        room_id: Optional[int] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> HttpHistoryExport:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            partial(
+                self._http_history.export, room_id=room_id, since=since, until=until
+            ),
+        )
+
+    async def clear_http_history(self) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._http_history.clear)
 
     def _setup(self) -> None:
         # 设置管理器的 apply_* 方法依赖这些属性已经挂到 Application 上。

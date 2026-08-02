@@ -1,11 +1,12 @@
 """房间号规范化以及播放信息树的筛选辅助。"""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 from jsonpath import jsonpath
 
 from ..exception import NotFoundError
+from ..http_history import HttpHistoryStore
 from .api import WebApi
 from .exceptions import ApiRequestError
 from .net import create_connector, timeout
@@ -14,21 +15,25 @@ from .typing import QualityNumber, ResponseData, StreamCodec, StreamFormat
 __all__ = 'room_init', 'ensure_room_id'
 
 
-async def room_init(room_id: int) -> ResponseData:
+async def room_init(
+    room_id: int, http_history: Optional[HttpHistoryStore] = None
+) -> ResponseData:
     async with aiohttp.ClientSession(
         connector=create_connector(),
         raise_for_status=True,
         trust_env=True,
         timeout=timeout,
     ) as session:
-        api = WebApi(session, room_id=room_id)
+        api = WebApi(session, room_id=room_id, http_history=http_history)
         return await api.room_init(room_id)
 
 
-async def ensure_room_id(room_id: int) -> int:
+async def ensure_room_id(
+    room_id: int, http_history: Optional[HttpHistoryStore] = None
+) -> int:
     """Ensure room id is valid and is the real room id"""
     try:
-        result = await room_init(room_id)
+        result = await room_init(room_id, http_history)
     except ApiRequestError as e:
         if e.code == 60004:
             raise NotFoundError(f'the room {room_id} not existed')
@@ -39,7 +44,9 @@ async def ensure_room_id(room_id: int) -> int:
         return result['room_id']
 
 
-async def get_nav(cookie: str) -> ResponseData:
+async def get_nav(
+    cookie: str, http_history: Optional[HttpHistoryStore] = None
+) -> ResponseData:
     async with aiohttp.ClientSession(
         connector=create_connector(),
         raise_for_status=True,
@@ -51,7 +58,7 @@ async def get_nav(cookie: str) -> ResponseData:
             'Referer': 'https://passport.bilibili.com/account/security',
             'Cookie': cookie,
         }
-        api = WebApi(session, headers)
+        api = WebApi(session, headers, http_history=http_history)
         return await api.get_nav()
 
 

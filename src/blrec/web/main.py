@@ -20,7 +20,15 @@ from blrec.web.middlewares.route_redirect import RouteRedirectMiddleware
 
 from ..application import Application
 from . import security
-from .routers import application, settings, tasks, update, validation, websockets
+from .routers import (
+    application,
+    http_history,
+    settings,
+    tasks,
+    update,
+    validation,
+    websockets,
+)
 from .schemas import ResponseMessage
 
 # 模块导入即完成 ASGI 应用装配；路径规范化必须发生在 Settings.load 之前。
@@ -117,12 +125,14 @@ settings.app = app
 application.app = app
 validation.app = app
 websockets.app = app
+http_history.app = app
 update.app = app
 api.include_router(tasks.router)
 api.include_router(settings.router)
 api.include_router(application.router)
 api.include_router(validation.router)
 api.include_router(websockets.router)
+api.include_router(http_history.router)
 api.include_router(update.router)
 
 

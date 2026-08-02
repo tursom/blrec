@@ -1,0 +1,36 @@
+.history-tools {
+  padding: 8px 0;
+}
+
+.history-status,
+.history-filters,
+.history-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.history-filters,
+.history-actions {
+  margin-top: 12px;
+}
+
+.history-filters nz-select {
+  width: 160px;
+}
+
+.history-filters nz-range-picker {
+  width: min(100%, 390px);
+}
+
+.warning {
+  color: #cf1322;
+}
+
+@media (max-width: 600px) {
+  .history-filters nz-select,
+  .history-filters nz-range-picker {
+    width: 100%;
+  }
+}

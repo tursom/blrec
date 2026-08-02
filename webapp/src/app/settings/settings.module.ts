@@ -22,6 +22,7 @@ import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
 import { NzDividerModule } from 'ng-zorro-antd/divider';
 import { NzTableModule } from 'ng-zorro-antd/table';
 import { NzCollapseModule } from 'ng-zorro-antd/collapse';
+import { NzDatePickerModule } from 'ng-zorro-antd/date-picker';
 
 import { SharedModule } from '../shared/shared.module';
 import { SettingsResolver } from './shared/services/settings.resolver';
@@ -73,6 +74,7 @@ import { BasePlayInfoApiUrlEditDialogComponent } from './bili-api-settings/base-
 import { BarkNotificationSettingsComponent } from './notification-settings/bark-notification-settings/bark-notification-settings.component';
 import { BarkSettingsComponent } from './notification-settings/bark-notification-settings/bark-settings/bark-settings.component';
 import { BarkNotificationSettingsResolver } from './shared/services/bark-notification-settings.resolver';
+import { HttpHistorySettingsComponent } from './http-history-settings/http-history-settings.component';
 
 @NgModule({
   declarations: [
@@ -116,6 +118,7 @@ import { BarkNotificationSettingsResolver } from './shared/services/bark-notific
     BaseApiUrlEditDialogComponent,
     BaseLiveApiUrlEditDialogComponent,
     BasePlayInfoApiUrlEditDialogComponent,
+    HttpHistorySettingsComponent,
   ],
   imports: [
     CommonModule,
@@ -142,6 +145,7 @@ import { BarkNotificationSettingsResolver } from './shared/services/bark-notific
     NzDividerModule,
     NzTableModule,
     NzCollapseModule,
+    NzDatePickerModule,
 
     SharedModule,
   ],

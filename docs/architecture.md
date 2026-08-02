@@ -80,6 +80,7 @@ flowchart LR
 | `blrec.webhook` | 事件 Webhook 发射 |
 | `blrec.event` | 事件总线 |
 | `blrec.exception` | 异常总线和异常处理 |
+| `blrec.http_history` | B 站 HTTP 请求历史的脱敏、分段持久化与 ZIP 导出 |
 | `blrec.flv` / `blrec.hls` / `blrec.danmaku` | 媒体、HLS、弹幕相关底层处理 |
 | `blrec.update` | 更新信息查询 |
 | `blrec.utils` | 通用工具和 Rx/异步辅助 |
@@ -204,6 +205,8 @@ FastAPI 生命周期事件负责驱动应用对象：
 
 这层的目标是尽量把“B站接口不稳定、易风控、返回结构多变”的复杂度隔离出去。
 
+所有 Web/App API、HTML 回退和播放地址请求都会把脱敏后的交换记录提交到应用级 `HttpHistoryStore`。FLV 只记录握手和读取错误；HLS 保存 playlist 变化，并把成功分片按时间窗口聚合，避免持久化持续媒体正文。存储采用有界 JSONL 分段，故障不会反向中断监控或录制。
+
 ### 5.5 录制核心层
 
 `src/blrec/core` 是录制引擎主体。
@@ -248,7 +251,7 @@ FastAPI 生命周期事件负责驱动应用对象：
 
 ### 5.7 事件、异常与通知
 
-项目有两条横向通道：
+项目有三条横向通道：
 
 #### 事件通道
 
@@ -265,6 +268,16 @@ FastAPI 生命周期事件负责驱动应用对象：
 - `ExceptionHandler` 负责应用级异常处理与上报
 
 这种设计把“业务执行”和“对外告警/展示”解耦了。
+
+#### HTTP 请求历史
+
+- `blrec.http_history.HttpHistoryStore` 在后台线程串行写入脱敏 JSONL
+- 历史按保留天数和总空间上限自动删除最旧分段
+- `/api/v1/http-history/status` 暴露记录状态和存储错误
+- `/api/v1/http-history/export` 按房间和时间范围生成 issue 排障 ZIP
+- `/api/v1/http-history` 的 `DELETE` 操作清空已有历史
+
+请求历史接口和其他 Web API 使用相同的全局 API Key 保护。导出包不包含 Cookie、授权信息、WBI 签名或播放 URL 凭证，但公开前仍需人工检查接口响应内容。
 
 ### 5.8 磁盘空间治理
 

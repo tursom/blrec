@@ -52,6 +52,7 @@ __all__ = (
     'TaskSettings',
     'OutputSettings',
     'LoggingSettings',
+    'HttpHistorySettings',
     'SpaceSettings',
     'EmailSettings',
     'ServerchanSettings',
@@ -342,6 +343,12 @@ class LoggingSettings(BaseModel):
         if not os.path.isdir(os.path.expanduser(path)):
             raise ValueError(f"'{path}' not a directory")
         return path
+
+
+class HttpHistorySettings(BaseModel):
+    enabled: bool = True
+    retention_days: Annotated[int, Field(ge=1, le=90)] = 7
+    max_size: Annotated[int, Field(ge=10 * 1024**2, le=1024 * 1024**2)] = 100 * 1024**2
 
 
 class SpaceSettings(BaseModel):
@@ -653,6 +660,7 @@ class Settings(BaseModel):
     tasks: Annotated[List[TaskSettings], Field(max_items=100)] = []
     output: OutputSettings = OutputSettings()  # type: ignore
     logging: LoggingSettings = LoggingSettings()  # type: ignore
+    http_history: HttpHistorySettings = HttpHistorySettings()
     bili_api: BiliApiSettings = BiliApiSettings()
     header: HeaderSettings = HeaderSettings()
     danmaku: DanmakuSettings = DanmakuSettings()
@@ -705,6 +713,7 @@ class Settings(BaseModel):
 class SettingsIn(BaseModel):
     output: Optional[OutputSettings] = None
     logging: Optional[LoggingSettings] = None
+    http_history: Optional[HttpHistorySettings] = None
     bili_api: Optional[BiliApiSettings] = None
     header: Optional[HeaderSettings] = None
     danmaku: Optional[DanmakuSettings] = None

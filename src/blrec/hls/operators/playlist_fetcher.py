@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import time
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -15,6 +17,7 @@ from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposab
 from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_exponential
 
 from blrec.bili.live import Live
+from blrec.http_history import record_http_exchange
 from blrec.utils.mixins import SupportDebugMixin
 
 __all__ = ('PlaylistFetcher',)
@@ -26,6 +29,7 @@ class PlaylistFetcher(SupportDebugMixin):
         self._init_for_debug(live.room_id)
         self._live = live
         self._session = session
+        self._playlist_hashes = {}
 
     def __call__(self, source: Observable[str]) -> Observable[m3u8.M3U8]:
         return self._fetch(source)
@@ -88,6 +92,9 @@ class PlaylistFetcher(SupportDebugMixin):
         )
         return sorted_playlists[-1].absolute_uri
 
+    def _fetch_playlist(self, url: str) -> str:
+        return self._fetch_playlist_with_retry(url, uuid.uuid4().hex)
+
     @retry(
         reraise=True,
         retry=retry_if_exception_type(
@@ -100,13 +107,49 @@ class PlaylistFetcher(SupportDebugMixin):
         wait=wait_exponential(multiplier=0.1, max=1),
         stop=stop_after_delay(8),
     )
-    def _fetch_playlist(self, url: str) -> str:
+    def _fetch_playlist_with_retry(self, url: str, operation_id: str) -> str:
+        started_at = time.perf_counter()
         try:
             response = self._session.get(url, headers=self._live.headers, timeout=3)
             response.raise_for_status()
         except Exception as e:
+            failed_response = getattr(e, 'response', None)
+            record_http_exchange(
+                self._live.http_history,
+                room_id=self._live.room_id,
+                category='hls_playlist',
+                method='GET',
+                url=url,
+                request_headers=self._live.headers,
+                response_status=getattr(failed_response, 'status_code', None),
+                response_headers=getattr(failed_response, 'headers', None),
+                response_body=getattr(failed_response, 'text', None),
+                error=e,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                operation_id=operation_id,
+                max_body_size=1024 * 1024,
+            )
             logger.debug(f'Failed to fetch playlist: {repr(e)}')
             raise
         else:
             response.encoding = 'utf-8'
-            return response.text
+            content = response.text
+            digest = hashlib.sha256(content.encode('utf8')).hexdigest()
+            changed = self._playlist_hashes.get(url) != digest
+            self._playlist_hashes[url] = digest
+            record_http_exchange(
+                self._live.http_history,
+                room_id=self._live.room_id,
+                category='hls_playlist',
+                method='GET',
+                url=response.url,
+                request_headers=response.request.headers,
+                response_status=response.status_code,
+                response_headers=response.headers,
+                response_body=content if changed else None,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                operation_id=operation_id,
+                max_body_size=1024 * 1024,
+                extra={'body_unchanged': not changed, 'body_sha256': digest},
+            )
+            return content

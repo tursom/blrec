@@ -1,0 +1,103 @@
+<form nz-form [formGroup]="settingsForm">
+  <nz-form-item class="setting-item" appSwitchActionable>
+    <nz-form-label class="setting-label" nzNoColon>保存请求历史</nz-form-label>
+    <nz-form-control
+      class="setting-control switch"
+      [nzWarningTip]="syncFailedWarningTip"
+      [nzValidateStatus]="syncStatus.enabled ? enabledControl : 'warning'"
+    >
+      <nz-switch formControlName="enabled"></nz-switch>
+    </nz-form-control>
+  </nz-form-item>
+
+  <nz-form-item class="setting-item">
+    <nz-form-label class="setting-label" nzNoColon>保留时间</nz-form-label>
+    <nz-form-control
+      class="setting-control select"
+      [nzWarningTip]="syncFailedWarningTip"
+      [nzValidateStatus]="
+        syncStatus.retentionDays ? retentionDaysControl : 'warning'
+      "
+    >
+      <nz-select formControlName="retentionDays" [nzOptions]="retentionOptions">
+      </nz-select>
+    </nz-form-control>
+  </nz-form-item>
+
+  <nz-form-item class="setting-item">
+    <nz-form-label class="setting-label" nzNoColon>最大占用空间</nz-form-label>
+    <nz-form-control
+      class="setting-control select"
+      [nzWarningTip]="syncFailedWarningTip"
+      [nzValidateStatus]="syncStatus.maxSize ? maxSizeControl : 'warning'"
+    >
+      <nz-select formControlName="maxSize" [nzOptions]="sizeOptions"></nz-select>
+    </nz-form-control>
+  </nz-form-item>
+</form>
+
+<nz-spin [nzSpinning]="loading">
+  <div class="history-tools">
+    <div class="history-status" *ngIf="historyStatus as status">
+      <span>{{ status.record_count }} 条</span>
+      <span>{{ status.total_size | filesize }}</span>
+      <span *ngIf="status.oldest_at && status.newest_at">
+        {{ status.oldest_at | date: 'yyyy-MM-dd HH:mm' }} -
+        {{ status.newest_at | date: 'yyyy-MM-dd HH:mm' }}
+      </span>
+      <span class="warning" *ngIf="status.dropped_records">
+        丢弃 {{ status.dropped_records }} 条
+      </span>
+      <span class="warning" *ngIf="status.last_error">{{ status.last_error }}</span>
+    </div>
+
+    <div class="history-filters">
+      <nz-select
+        [(ngModel)]="selectedRoomId"
+        [ngModelOptions]="{ standalone: true }"
+        nzAllowClear
+        nzPlaceHolder="全部房间"
+      >
+        <nz-option
+          *ngFor="let roomId of historyStatus?.room_ids"
+          [nzLabel]="roomId.toString()"
+          [nzValue]="roomId"
+        ></nz-option>
+      </nz-select>
+      <nz-range-picker
+        [(ngModel)]="selectedRange"
+        [ngModelOptions]="{ standalone: true }"
+        nzShowTime
+        nzFormat="yyyy-MM-dd HH:mm"
+      ></nz-range-picker>
+    </div>
+
+    <div class="history-actions">
+      <button nz-button type="button" (click)="refreshStatus()">
+        <span nz-icon nzType="reload"></span>
+        刷新
+      </button>
+      <button
+        nz-button
+        nzType="primary"
+        type="button"
+        [nzLoading]="downloading"
+        [disabled]="!historyStatus?.record_count"
+        (click)="downloadHistory()"
+      >
+        <span nz-icon nzType="download"></span>
+        下载
+      </button>
+      <button
+        nz-button
+        nzDanger
+        type="button"
+        [disabled]="!historyStatus?.record_count"
+        (click)="confirmClear()"
+      >
+        <span nz-icon nzType="delete"></span>
+        清空
+      </button>
+    </div>
+  </div>
+</nz-spin>
