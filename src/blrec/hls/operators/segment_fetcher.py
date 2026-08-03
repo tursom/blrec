@@ -28,7 +28,11 @@ from tenacity import (
 from blrec.bili.live import Live
 from blrec.core import operators as core_ops
 from blrec.exception.helpers import format_exception
-from blrec.http_history import record_http_exchange
+from blrec.http_history import (
+    mark_http_incident,
+    record_http_exchange,
+    redirects_from_response,
+)
 from blrec.utils import operators as utils_ops
 from blrec.utils.hash import cksum
 
@@ -105,12 +109,16 @@ class SegmentFetcher:
                         )
                     ):
                         url = seg.init_section.absolute_uri
-                        data = self._fetch_segment(url)
+                        data = self._fetch_segment(url, resource_role='hls_init')
                         data_operation_id = self._last_segment_operation_id
                         # 初始化段没有服务端校验值，最多下载三次并要求相邻两次相同。
                         for _ in range(self._MAX_INIT_SECTION_DOWNLOADS - 1):
                             time.sleep(1)
-                            if (_data := self._fetch_segment(url)) == data:
+                            if (
+                                _data := self._fetch_segment(
+                                    url, resource_role='hls_init'
+                                )
+                            ) == data:
                                 self._record_segment_success(
                                     url, len(data), data_operation_id
                                 )
@@ -134,6 +142,13 @@ class SegmentFetcher:
                                 data = _data
                                 data_operation_id = self._last_segment_operation_id
                         else:
+                            mark_http_incident(
+                                self._live.http_history,
+                                room_id=self._live.room_id,
+                                kind='hls_init_unstable',
+                                operation_id=self._last_segment_operation_id,
+                                details={'url': url, 'attempts': 3},
+                            )
                             raise SegmentDataCorrupted(url)
                         observer.on_next(InitSectionData(segment=seg, payload=data))
                     last_segment = seg
@@ -171,6 +186,13 @@ class SegmentFetcher:
                         self._record_segment_success(url, len(data), operation_id)
                         break
                     else:
+                        mark_http_incident(
+                            self._live.http_history,
+                            room_id=self._live.room_id,
+                            kind='hls_segment_corrupted',
+                            operation_id=self._last_segment_operation_id,
+                            details={'url': url, 'attempts': 3},
+                        )
                         raise SegmentDataCorrupted(url)
                 except Exception as exc:
                     logger.warning(
@@ -199,9 +221,9 @@ class SegmentFetcher:
 
         return Observable(subscribe)
 
-    def _fetch_segment(self, url: str) -> bytes:
+    def _fetch_segment(self, url: str, *, resource_role: str = 'hls_media') -> bytes:
         operation_id = uuid.uuid4().hex
-        data = self._fetch_segment_with_retry(url, operation_id)
+        data = self._fetch_segment_with_retry(url, operation_id, resource_role)
         self._last_segment_operation_id = operation_id
         return data
 
@@ -216,29 +238,53 @@ class SegmentFetcher:
         wait=wait_exponential(max=10),
         stop=stop_after_delay(60),
     )
-    def _fetch_segment_with_retry(self, url: str, operation_id: str) -> bytes:
+    def _fetch_segment_with_retry(
+        self, url: str, operation_id: str, resource_role: str
+    ) -> bytes:
         started_at = time.perf_counter()
         try:
             response = self._session.get(url, headers=self._live.headers, timeout=5)
             response.raise_for_status()
         except Exception as e:
             failed_response = getattr(e, 'response', None)
+            failed_payload = getattr(failed_response, 'content', None)
             record_http_exchange(
                 self._live.http_history,
                 room_id=self._live.room_id,
-                category='hls_segment',
+                category=resource_role,
                 method='GET',
                 url=url,
                 request_headers=self._live.headers,
                 response_status=getattr(failed_response, 'status_code', None),
                 response_headers=getattr(failed_response, 'headers', None),
+                response_payload=(
+                    failed_payload if isinstance(failed_payload, bytes) else None
+                ),
+                payload_role=resource_role,
                 error=e,
                 duration_ms=(time.perf_counter() - started_at) * 1000,
                 operation_id=operation_id,
+                redirects=redirects_from_response(failed_response),
             )
             logger.debug(f'Failed to fetch segment {url}: {repr(e)}')
             raise
         else:
+            request = getattr(response, 'request', None)
+            record_http_exchange(
+                self._live.http_history,
+                room_id=self._live.room_id,
+                category=resource_role,
+                method='GET',
+                url=str(getattr(response, 'url', url)),
+                request_headers=getattr(request, 'headers', self._live.headers),
+                response_status=response.status_code,
+                response_headers=response.headers,
+                response_payload=response.content,
+                payload_role=resource_role,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                operation_id=operation_id,
+                redirects=redirects_from_response(response),
+            )
             return response.content
 
     def _record_segment_success(

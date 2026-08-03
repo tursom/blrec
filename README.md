@@ -25,7 +25,7 @@
 - 监控磁盘空间并按策略回收旧录播文件
 - 通过邮件、ServerChan、PushDeer、pushplus、Telegram 和 Bark 发送通知
 - 通过 Webhook 和 REST API 接入后续压制、上传等自动化流程
-- 持久化保存脱敏后的 B 站 HTTP 请求历史，并可从 Web 界面导出排障包
+- 持久化保存脱敏后的 B 站 HTTP 请求历史，并在 HLS 异常时导出可重建现场包
 
 ## 开始使用
 

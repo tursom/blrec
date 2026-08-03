@@ -9,6 +9,7 @@ from loguru import logger
 from reactivex import Observable, Subject, abc
 from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposable
 
+from blrec.http_history import HttpHistoryStore, mark_http_incident
 from blrec.utils.ffprobe import StreamProfile, ffprobe
 
 from .segment_fetcher import InitSectionData, SegmentData
@@ -20,9 +21,15 @@ class SegmentDumper:
     """初始化段变化或上游 split 标志会关闭当前文件并创建新文件。"""
 
     def __init__(
-        self, path_provider: Callable[[Optional[int]], Tuple[str, int]]
+        self,
+        path_provider: Callable[[Optional[int]], Tuple[str, int]],
+        *,
+        http_history: Optional[HttpHistoryStore] = None,
+        room_id: Optional[int] = None,
     ) -> None:
         self._path_provider = path_provider
+        self._http_history = http_history
+        self._room_id = room_id
         self._file_opened: Subject[Tuple[str, int]] = Subject()
         self._file_closed: Subject[str] = Subject()
         self._reset()
@@ -92,6 +99,7 @@ class SegmentDumper:
                 curr_profile = ffprobe(curr_init_item.payload)
             except Exception as e:
                 logger.warning(f'Failed to probe current init section: {repr(e)}')
+                self._report_incident('hls_init_probe_failed', {'error': repr(e)})
             else:
                 logger.debug(f'current init section profile: {curr_profile}')
             return True
@@ -103,6 +111,7 @@ class SegmentDumper:
             logger.warning(
                 f'Failed to compare init section profiles, splitting file: {repr(e)}'
             )
+            self._report_incident('hls_init_probe_failed', {'error': repr(e)})
             return True
 
         logger.debug(f'previous init section profile: {prev_profile}')
@@ -111,13 +120,24 @@ class SegmentDumper:
         curr_fingerprint = self._profile_fingerprint(curr_profile)
         if prev_fingerprint is None or curr_fingerprint is None:
             logger.warning('Incomplete init section profile, splitting file')
+            self._report_incident('hls_init_profile_incomplete')
             return True
         if prev_fingerprint != curr_fingerprint:
             logger.warning('Init section track parameters changed')
+            self._report_incident('hls_init_incompatible')
             return True
 
         logger.debug('Init section changed but track parameters remain compatible')
         return False
+
+    def _report_incident(
+        self, kind: str, details: Optional[Dict[str, Any]] = None
+    ) -> None:
+        if self._room_id is None:
+            return
+        mark_http_incident(
+            self._http_history, room_id=self._room_id, kind=kind, details=details
+        )
 
     def _profile_fingerprint(
         self, profile: StreamProfile

@@ -31,7 +31,10 @@
       [nzWarningTip]="syncFailedWarningTip"
       [nzValidateStatus]="syncStatus.maxSize ? maxSizeControl : 'warning'"
     >
-      <nz-select formControlName="maxSize" [nzOptions]="sizeOptions"></nz-select>
+      <nz-select
+        formControlName="maxSize"
+        [nzOptions]="sizeOptions"
+      ></nz-select>
     </nz-form-control>
   </nz-form-item>
 </form>
@@ -41,14 +44,21 @@
     <div class="history-status" *ngIf="historyStatus as status">
       <span>{{ status.record_count }} 条</span>
       <span>{{ status.total_size | filesize }}</span>
+      <span>{{ status.incident_count }} 个现场</span>
+      <span *ngIf="status.active_incident_count">
+        捕获中 {{ status.active_incident_count }} 个
+      </span>
+      <span>HLS 正文 {{ status.payload_size | filesize }}</span>
       <span *ngIf="status.oldest_at && status.newest_at">
-        {{ status.oldest_at | date: 'yyyy-MM-dd HH:mm' }} -
-        {{ status.newest_at | date: 'yyyy-MM-dd HH:mm' }}
+        {{ status.oldest_at | date: "yyyy-MM-dd HH:mm" }} -
+        {{ status.newest_at | date: "yyyy-MM-dd HH:mm" }}
       </span>
       <span class="warning" *ngIf="status.dropped_records">
         丢弃 {{ status.dropped_records }} 条
       </span>
-      <span class="warning" *ngIf="status.last_error">{{ status.last_error }}</span>
+      <span class="warning" *ngIf="status.last_error">{{
+        status.last_error
+      }}</span>
     </div>
 
     <div class="history-filters">
@@ -77,6 +87,10 @@
         <span nz-icon nzType="reload"></span>
         刷新
       </button>
+      <button nz-button type="button" (click)="refreshIncidents()">
+        <span nz-icon nzType="filter"></span>
+        筛选现场
+      </button>
       <button
         nz-button
         nzType="primary"
@@ -101,3 +115,60 @@
     </div>
   </div>
 </nz-spin>
+
+<nz-table
+  #incidentTable
+  nzSize="small"
+  [nzData]="incidents"
+  [nzLoading]="incidentsLoading"
+  [nzPageSize]="8"
+  [nzShowSizeChanger]="false"
+  [nzScroll]="{ x: '900px' }"
+>
+  <thead>
+    <tr>
+      <th>时间</th>
+      <th>房间</th>
+      <th>类型</th>
+      <th>状态</th>
+      <th>记录</th>
+      <th>正文大小</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let incident of incidentTable.data">
+      <td>{{ incident.last_at | date: "yyyy-MM-dd HH:mm:ss" }}</td>
+      <td>{{ incident.room_id }}</td>
+      <td>
+        {{ incidentKindLabels[incident.kind] || incident.kind }}
+        <span *ngIf="incident.occurrence_count > 1">
+          ×{{ incident.occurrence_count }}
+        </span>
+      </td>
+      <td>
+        {{ incident.status === "capturing" ? "捕获中" : "可下载" }}
+        <span class="warning" *ngIf="incident.partial">部分缺失</span>
+      </td>
+      <td>{{ incident.record_count }}</td>
+      <td>{{ incident.payload_size | filesize }}</td>
+      <td>
+        <button
+          nz-button
+          nzType="text"
+          type="button"
+          [nzLoading]="incidentDownloadingId === incident.incident_id"
+          [disabled]="incident.status === 'capturing'"
+          (click)="confirmIncidentDownload(incident.incident_id)"
+        >
+          <span nz-icon nzType="download"></span>
+          下载
+        </button>
+      </td>
+    </tr>
+  </tbody>
+</nz-table>
+
+<div class="warning incident-error" *ngIf="incidentError">
+  {{ incidentError }}
+</div>

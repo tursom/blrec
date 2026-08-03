@@ -271,13 +271,19 @@ FastAPI 生命周期事件负责驱动应用对象：
 
 #### HTTP 请求历史
 
-- `blrec.http_history.HttpHistoryStore` 在后台线程串行写入脱敏 JSONL
-- 历史按保留天数和总空间上限自动删除最旧分段
-- `/api/v1/http-history/status` 暴露记录状态和存储错误
+- `blrec.http_history.HttpHistoryStore` 在后台线程串行写入 schema v2 脱敏 JSONL，并继续读取 v1 历史
+- HLS init/media 原始响应按 SHA256 写入内容寻址目录，多个请求和事件共享一份正文
+- 历史、事件索引和正文共用保留天数与总空间上限；先淘汰滚动数据，再淘汰最旧的已完成事件
+- HLS 关键异常冻结错误前 30 秒和后 10 秒，同房间同类型事件在五分钟内合并
+- `/api/v1/http-history/status` 暴露记录、事件、HLS 正文占用和存储错误
 - `/api/v1/http-history/export` 按房间和时间范围生成 issue 排障 ZIP
+- `/api/v1/http-history/incidents` 按房间和 UTC 时间范围列出错误现场
+- `/api/v1/http-history/incidents/{incident_id}/export` 导出独立现场包
 - `/api/v1/http-history` 的 `DELETE` 操作清空已有历史
 
-请求历史接口和其他 Web API 使用相同的全局 API Key 保护。导出包不包含 Cookie、授权信息、WBI 签名或播放 URL 凭证，但公开前仍需人工检查接口响应内容。
+现场包的 `records.jsonl` 按全局 `sequence` 排列，`manifest.json` 记录窗口、资源限制、正文清单和遗漏原因。外部工具按 exchange/operation ID 与顺序重建响应，不依赖已经脱敏或过期的真实播放 URL。blrec 不内置重放 runner。
+
+请求历史接口和其他 Web API 使用相同的全局 API Key 保护。文本不包含 Cookie、授权信息、WBI 签名或播放 URL 凭证；HLS init/media 是无法脱敏的受限诊断数据，可能包含直播音视频，下载和公开前必须人工检查。
 
 ### 5.8 磁盘空间治理
 

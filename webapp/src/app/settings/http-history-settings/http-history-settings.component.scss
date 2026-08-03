@@ -28,6 +28,15 @@
   color: #cf1322;
 }
 
+.incident-error {
+  margin-top: 8px;
+}
+
+nz-table {
+  display: block;
+  margin-top: 12px;
+}
+
 @media (max-width: 600px) {
   .history-filters nz-select,
   .history-filters nz-range-picker {

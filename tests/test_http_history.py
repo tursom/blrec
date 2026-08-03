@@ -28,6 +28,7 @@ from blrec.application import Application
 from blrec.bili.api import BaseApi, WebApi
 from blrec.bili.exceptions import ApiRequestError
 from blrec.bili.live import Live
+from blrec.core.cover_downloader import CoverDownloader
 from blrec.core.operators.request_exception_handler import RequestExceptionHandler
 from blrec.core.operators.stream_fetcher import StreamFetcher
 from blrec.hls.operators.playlist_fetcher import PlaylistFetcher
@@ -224,7 +225,7 @@ class HttpHistoryStoreTestCase(unittest.TestCase):
             lines = archive.read('records.jsonl').decode().splitlines()
 
         self.assertEqual(result.record_count, 1)
-        self.assertEqual(manifest['schema_version'], 1)
+        self.assertEqual(manifest['schema_version'], 2)
         self.assertEqual(manifest['filters']['room_id'], 2)
         self.assertNotIn('cwd', manifest['application'])
         self.assertEqual(json.loads(lines[0])['room_id'], 2)
@@ -320,14 +321,14 @@ class HttpHistoryStoreTestCase(unittest.TestCase):
         self.store.flush()
 
         status = self.store.status()
-        self.assertEqual(status.dropped_records, 2)
+        self.assertEqual(status.dropped_records, 1)
         self.assertIn('disk full', status.last_error or '')
         result = self.store.export()
         self.addCleanup(lambda: os.path.exists(result.path) and os.remove(result.path))
         with zipfile.ZipFile(result.path) as archive:
             records = archive.read('records.jsonl')
         self.assertIn(b'recovered', records)
-        self.assertNotIn(b'dropped', records)
+        self.assertIn(b'dropped', records)
 
     def test_http_exchange_records_body_hash_and_truncation(self) -> None:
         record_http_exchange(
@@ -426,6 +427,28 @@ class HttpHistoryStoreTestCase(unittest.TestCase):
         self.store.start()
 
         self.assertEqual(self.store.status().record_count, 100)
+
+    def test_v1_jsonl_remains_readable_by_status_and_general_export(self) -> None:
+        self.store.close()
+        record = {
+            'schema_version': 1,
+            'recorded_at': '2026-08-01T00:00:00+00:00',
+            'room_id': 41,
+            'request': {'url': 'https://api.bilibili.com/v1'},
+        }
+        path = Path(self.tempdir.name) / 'http-history-v1.jsonl'
+        path.write_text(json.dumps(record) + '\n', encoding='utf8')
+        self.store = HttpHistoryStore(self.tempdir.name, max_size=10 * 1024 * 1024)
+        self.store.start()
+
+        result = self.store.export(room_id=41)
+        self.addCleanup(lambda: os.path.exists(result.path) and os.remove(result.path))
+        with zipfile.ZipFile(result.path) as archive:
+            exported = json.loads(archive.read('records.jsonl'))
+
+        self.assertEqual(self.store.status().record_count, 1)
+        self.assertEqual(exported['schema_version'], 1)
+        self.assertNotIn('payload', exported.get('response', {}))
 
     def test_directory_switch_drains_old_store_and_uses_new_directory(self) -> None:
         second_directory = tempfile.TemporaryDirectory()
@@ -692,7 +715,7 @@ class HttpHistorySettingsTestCase(unittest.TestCase):
 
         self.assertTrue(settings.http_history.enabled)
         self.assertEqual(settings.http_history.retention_days, 7)
-        self.assertEqual(settings.http_history.max_size, 100 * 1024 * 1024)
+        self.assertEqual(settings.http_history.max_size, 500 * 1024 * 1024)
         self.assertEqual(
             SettingsIn(httpHistory=settings.http_history).dict(by_alias=True)[
                 'httpHistory'
@@ -762,6 +785,57 @@ class HttpHistoryApiTestCase(unittest.IsolatedAsyncioTestCase):
                 since=datetime(2026, 8, 2, tzinfo=timezone.utc),
                 until=datetime(2026, 8, 1, tzinfo=timezone.utc),
             )
+
+    async def test_user_can_list_filter_and_download_incidents(self) -> None:
+        self.application._http_history.record(
+            {
+                'record_type': 'http_exchange',
+                'room_id': 123,
+                'recorded_at': '2026-08-02T00:00:00+00:00',
+                'request': {'url': 'https://cdn.example/init.mp4'},
+                'response': {'status': 200},
+            },
+            payload=b'init',
+            payload_role='hls_init',
+        )
+        incident_id = self.application._http_history.mark_incident(
+            room_id=123,
+            kind='hls_init_unstable',
+            occurred_at=datetime(2026, 8, 2, tzinfo=timezone.utc),
+        )
+
+        incidents = await http_history_router.list_http_incidents(
+            room_id=123,
+            since=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            until=datetime(2026, 8, 3, tzinfo=timezone.utc),
+        )
+        self.assertEqual(len(incidents), 1)
+        self.assertEqual(incidents[0].incident_id, incident_id)
+        self.assertEqual(incidents[0].kind, 'hls_init_unstable')
+        self.assertEqual(incidents[0].payload_size, 4)
+
+        history_status = await http_history_router.get_http_history_status()
+        self.assertEqual(history_status.incident_count, 1)
+        self.assertEqual(history_status.active_incident_count, 0)
+        self.assertEqual(history_status.payload_size, 4)
+
+        response = await http_history_router.export_http_incident(incident_id)
+        self.addCleanup(
+            lambda: os.path.exists(response.path) and os.remove(response.path)
+        )
+        with zipfile.ZipFile(response.path) as archive:
+            manifest = json.loads(archive.read('manifest.json'))
+        self.assertEqual(manifest['incident']['incident_id'], incident_id)
+
+    async def test_incident_routes_reject_invalid_ranges_and_unknown_ids(self) -> None:
+        with self.assertRaises(Exception):
+            await http_history_router.list_http_incidents(
+                room_id=None, since=datetime(2026, 8, 1), until=datetime(2026, 8, 2)
+            )
+        with self.assertRaises(Exception):
+            await http_history_router.export_http_incident('../manifest.json')
+        with self.assertRaises(Exception):
+            await http_history_router.export_http_incident('0' * 32)
 
     async def test_cookie_validation_is_exposed_by_the_application_facade(self) -> None:
         response = {'code': 0, 'message': 'ok', 'data': {}}
@@ -882,6 +956,15 @@ class HttpHistoryCaptureTestCase(unittest.IsolatedAsyncioTestCase):
         application.router.add_get('/broken-html', broken_html)
         application.router.add_get('/unavailable', unavailable)
         application.router.add_get('/valid-html', valid_html)
+        self.cover_attempts = 0
+
+        async def retrying_cover(request: web.Request) -> web.Response:
+            self.cover_attempts += 1
+            if self.cover_attempts < 3:
+                return web.Response(status=503, text='try again')
+            return web.Response(body=b'cover-data', content_type='image/jpeg')
+
+        application.router.add_get('/cover.jpg', retrying_cover)
         self.runner = web.AppRunner(application)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, '127.0.0.1', 0)
@@ -910,6 +993,53 @@ class HttpHistoryCaptureTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn('w_rid=%5BREDACTED%5D', record['request']['url'])
         self.assertEqual(record['operation_id'] is not None, True)
         self.assertEqual(record['retry'], {'attempt': 1, 'is_retry': False})
+
+    async def test_exchange_without_caller_operation_id_gets_attempt_identity(
+        self,
+    ) -> None:
+        record_http_exchange(
+            self.store,
+            room_id=98,
+            category='connectivity',
+            method='HEAD',
+            url=self.base_url,
+            response_status=200,
+        )
+
+        export = self.store.export(room_id=98)
+        self.addCleanup(lambda: os.path.exists(export.path) and os.remove(export.path))
+        with zipfile.ZipFile(export.path) as archive:
+            record = json.loads(archive.read('records.jsonl'))
+
+        self.assertIsInstance(record['operation_id'], str)
+        self.assertTrue(record['operation_id'])
+        self.assertEqual(record['retry'], {'attempt': 1, 'is_retry': False})
+
+    async def test_cover_retries_share_operation_id_and_increment_attempts(
+        self,
+    ) -> None:
+        live = SimpleNamespace(
+            room_id=97,
+            http_history=self.store,
+            headers={'User-Agent': 'blrec-test'},
+            room_info=SimpleNamespace(cover=self.base_url + '/cover.jpg'),
+            update_room_info=AsyncMock(return_value=True),
+        )
+        downloader = CoverDownloader(live, Mock(), save_cover=True)
+        video_path = os.path.join(self.tempdir.name, 'recording.m4s')
+
+        await downloader.on_video_file_completed(video_path)
+
+        export = self.store.export(room_id=97)
+        self.addCleanup(lambda: os.path.exists(export.path) and os.remove(export.path))
+        with zipfile.ZipFile(export.path) as archive:
+            records = [
+                json.loads(line)
+                for line in archive.read('records.jsonl').decode().splitlines()
+            ]
+        self.assertEqual(self.cover_attempts, 3)
+        self.assertEqual(len({record['operation_id'] for record in records}), 1)
+        self.assertEqual([record['retry']['attempt'] for record in records], [1, 2, 3])
 
     async def test_concurrent_api_candidates_are_not_mislabeled_as_retries(
         self,

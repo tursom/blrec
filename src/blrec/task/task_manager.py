@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Tuple
 
@@ -16,6 +18,7 @@ from ..core.typing import MetaData
 from ..exception import NotFoundError, submit_exception
 from ..flv.operators import StreamProfile
 from ..hls.recovery import recover_incomplete_hls_recordings
+from ..http_history import mark_http_incident
 from .models import DanmakuFileDetail, TaskData, TaskParam, VideoFileDetail
 from .task import RecordTask
 
@@ -179,6 +182,22 @@ class RecordTaskManager:
             task = tasks.get(room_id)
             if task is None:
                 continue
+            mtimes = []
+            for path in paths:
+                try:
+                    mtimes.append(os.path.getmtime(path))
+                except OSError:
+                    pass
+            occurred_at = (
+                datetime.fromtimestamp(max(mtimes), timezone.utc) if mtimes else None
+            )
+            mark_http_incident(
+                self._http_history,
+                room_id=room_id,
+                kind='hls_crash_recovered',
+                details={'paths': paths},
+                occurred_at=occurred_at,
+            )
             try:
                 await task.process_existing_files(paths)
             except Exception as exc:

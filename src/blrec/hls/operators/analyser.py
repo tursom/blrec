@@ -9,6 +9,8 @@ from loguru import logger
 from reactivex import Observable, abc
 from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposable
 
+from blrec.http_history import HttpHistoryStore, mark_http_incident
+
 from .playlist_dumper import PlaylistDumper
 from .prober import Prober, StreamProfile
 from .segment_dumper import SegmentDumper
@@ -33,10 +35,15 @@ class Analyser:
         playlist_dumper: PlaylistDumper,
         segment_dumper: SegmentDumper,
         prober: Prober,
+        *,
+        http_history: Optional[HttpHistoryStore] = None,
+        room_id: Optional[int] = None,
     ) -> None:
         self._playlist_dumper = playlist_dumper
         self._segment_dumper = segment_dumper
         self._prober = prober
+        self._http_history = http_history
+        self._room_id = room_id
 
         self._reset()
         self._prober.profiles.subscribe(self._on_profile_updated)
@@ -56,6 +63,7 @@ class Analyser:
         )
         if video_profile is None:
             logger.warning('No video stream found in HLS profile')
+            self._report_incident('hls_video_stream_missing', profile)
             self._reset()
             return
 
@@ -63,11 +71,22 @@ class Analyser:
         height = video_profile.get('height')
         if not isinstance(width, int) or not isinstance(height, int):
             logger.warning('Video dimensions missing from HLS profile')
+            self._report_incident('hls_video_dimensions_missing', profile)
             self._reset()
             return
 
         self._video_width = width
         self._video_height = height
+
+    def _report_incident(self, kind: str, profile: StreamProfile) -> None:
+        if self._room_id is None:
+            return
+        mark_http_incident(
+            self._http_history,
+            room_id=self._room_id,
+            kind=kind,
+            details={'profile': profile},
+        )
 
     def make_metadata(self) -> MetaData:
         return MetaData(

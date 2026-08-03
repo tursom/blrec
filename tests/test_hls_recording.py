@@ -24,6 +24,7 @@ from blrec.hls.operators.segment_fetcher import (
     SegmentData,
     SegmentFetcher,
 )
+from blrec.http_history import HttpHistoryStore
 from blrec.utils.hash import cksum
 
 
@@ -310,6 +311,35 @@ class HLSSegmentDumperTestCase(unittest.TestCase):
         self.assertEqual(len(output), 4)
         self.assertTrue(Path(self.tmp.name, 'second.m4s').exists())
 
+    def test_incompatible_init_freezes_a_diagnostic_incident(self) -> None:
+        history_dir = os.path.join(self.tmp.name, 'history')
+        history = HttpHistoryStore(history_dir)
+        history.start()
+        self.addCleanup(history.close)
+        first = make_segment(1)
+        second = make_segment(2, init_uri='https://cdn.example/init-2.mp4')
+        initial = {'streams': [audio_profile(), video_profile()]}
+        changed = {'streams': [audio_profile(), video_profile(track_id='0x3')]}
+        dumper = SegmentDumper(
+            lambda: next(self.paths), http_history=history, room_id=17
+        )
+
+        with patch(
+            'blrec.hls.operators.segment_dumper.ffprobe',
+            side_effect=[initial, initial, changed],
+        ):
+            from_iterable(
+                [
+                    InitSectionData(first, b'init-a'),
+                    SegmentData(first, b'media-a'),
+                    InitSectionData(second, b'init-b'),
+                    SegmentData(second, b'media-b'),
+                ]
+            ).pipe(dumper).run()
+
+        incidents = history.list_incidents(room_id=17)
+        self.assertEqual([item.kind for item in incidents], ['hls_init_incompatible'])
+
 
 class HLSInitFetchTestCase(unittest.TestCase):
     def fetch_one_segment(self, init_payloads: list[bytes]) -> tuple[list, int]:
@@ -320,7 +350,9 @@ class HLSInitFetchTestCase(unittest.TestCase):
         output = []
         with (
             patch.object(
-                fetcher, '_fetch_segment', side_effect=lambda _: next(responses)
+                fetcher,
+                '_fetch_segment',
+                side_effect=lambda *_args, **_kwargs: next(responses),
             ),
             patch('blrec.hls.operators.segment_fetcher.time.sleep'),
         ):
@@ -346,7 +378,7 @@ class HLSInitFetchTestCase(unittest.TestCase):
         segments = [make_segment(index) for index in range(1, 5)]
         init_calls = 0
 
-        def fetch(url: str) -> bytes:
+        def fetch(url: str, **_kwargs) -> bytes:
             nonlocal init_calls
             if url.endswith('init.mp4'):
                 init_calls += 1

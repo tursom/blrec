@@ -7,6 +7,7 @@ from pydantic import BaseModel
 __all__ = (
     'ResponseMessage',
     'HttpHistoryStatusResponse',
+    'HttpIncidentSummaryResponse',
     'DataSelection',
     'AliasKeyOfSettings',
 )
@@ -27,6 +28,22 @@ class HttpHistoryStatusResponse(BaseModel):
     room_ids: List[int]
     dropped_records: int
     last_error: Optional[str]
+    incident_count: int
+    active_incident_count: int
+    payload_size: int
+
+
+class HttpIncidentSummaryResponse(BaseModel):
+    incident_id: str
+    room_id: int
+    kind: str
+    first_at: datetime
+    last_at: datetime
+    occurrence_count: int
+    status: str
+    record_count: int
+    payload_size: int
+    partial: bool
 
 
 class DataSelection(str, Enum):

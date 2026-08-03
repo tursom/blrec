@@ -55,7 +55,11 @@ class HLSStreamRecorderImpl(StreamRecorderImpl):
         self._segment_fetcher = hls_ops.SegmentFetcher(
             self._live, self._session, self._stream_url_resolver
         )
-        self._segment_dumper = hls_ops.SegmentDumper(self._path_provider)
+        self._segment_dumper = hls_ops.SegmentDumper(
+            self._path_provider,
+            http_history=self._live.http_history,
+            room_id=self._live.room_id,
+        )
         self._playlist_dumper = hls_ops.PlaylistDumper(self._segment_dumper)
         self._ff_metadata_dumper = MetadataDumper(
             self._segment_dumper, self._metadata_provider
@@ -68,9 +72,15 @@ class HLSStreamRecorderImpl(StreamRecorderImpl):
             filesize_limit=filesize_limit,
             duration_limit=duration_limit,
         )
-        self._prober = hls_ops.Prober()
+        self._prober = hls_ops.Prober(
+            http_history=self._live.http_history, room_id=self._live.room_id
+        )
         self._analyser = hls_ops.Analyser(
-            self._playlist_dumper, self._segment_dumper, self._prober
+            self._playlist_dumper,
+            self._segment_dumper,
+            self._prober,
+            http_history=self._live.http_history,
+            room_id=self._live.room_id,
         )
         self._dl_statistics = core_ops.SizedStatistics()
 

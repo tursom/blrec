@@ -348,7 +348,7 @@ class LoggingSettings(BaseModel):
 class HttpHistorySettings(BaseModel):
     enabled: bool = True
     retention_days: Annotated[int, Field(ge=1, le=90)] = 7
-    max_size: Annotated[int, Field(ge=10 * 1024**2, le=1024 * 1024**2)] = 100 * 1024**2
+    max_size: Annotated[int, Field(ge=10 * 1024**2, le=1024 * 1024**2)] = 500 * 1024**2
 
 
 class SpaceSettings(BaseModel):

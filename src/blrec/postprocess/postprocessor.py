@@ -23,6 +23,7 @@ from loguru import logger
 from reactivex.scheduler import ThreadPoolScheduler
 
 from blrec.logging.context import async_task_with_logger_context
+from blrec.http_history import mark_http_incident
 
 from ..bili.live import Live
 from ..core import Recorder, RecorderEventListener
@@ -323,6 +324,19 @@ class Postprocessor(
         if remux_result.is_failed():
             self._logger.error(f"Failed to remux '{in_path}' to '{out_path}'")
             result_path = _in_path if ext == '.m4s' else in_path
+            if ext == '.m4s':
+                details = await self._make_hls_remux_incident_details(
+                    _in_path,
+                    in_path,
+                    metadata_path,
+                    remux_result.output,
+                )
+                mark_http_incident(
+                    getattr(self._live, 'http_history', None),
+                    room_id=self._live.room_id,
+                    kind='hls_remux_failed',
+                    details=details,
+                )
         elif remux_result.is_warned():
             self._logger.warning('Remuxing done, but ran into problems.')
             result_path = out_path
@@ -338,6 +352,38 @@ class Postprocessor(
             await discard_file(metadata_path, 'DEBUG')
 
         return result_path, remux_result
+
+    async def _make_hls_remux_incident_details(
+        self,
+        video_path: str,
+        playlist: str,
+        ffmetadata: str,
+        output: str,
+    ) -> Dict[str, Any]:
+        def read_text(path: str) -> Optional[str]:
+            try:
+                with open(path, 'rb') as source:
+                    return source.read(1024 * 1024).decode('utf8', errors='replace')
+            except OSError:
+                return None
+
+        loop = asyncio.get_running_loop()
+        paths = (
+            playlist,
+            record_metadata_path(video_path),
+            ffmetadata,
+        )
+        contents = await asyncio.gather(
+            *(loop.run_in_executor(None, read_text, path) for path in paths)
+        )
+        return {
+            'ffmpeg_output': output,
+            'files': {
+                os.path.basename(path): content
+                for path, content in zip(paths, contents)
+                if content is not None
+            },
+        }
 
     def _analyse_metadata(self, path: str) -> Awaitable[None]:
         # Rx 管线在线程池运行，Future 把完成/错误信号转换回 asyncio awaitable。

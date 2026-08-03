@@ -31,6 +31,7 @@ class HLSRemuxFallbackTestCase(unittest.IsolatedAsyncioTestCase):
         Path(self.playlist_path).write_text('#EXTM3U\n#EXT-X-ENDLIST', encoding='utf8')
         Path(self.metadata_path).write_text('{}', encoding='utf8')
         self.recorder = Mock()
+        self.http_history = Mock()
 
     async def process(
         self,
@@ -39,7 +40,7 @@ class HLSRemuxFallbackTestCase(unittest.IsolatedAsyncioTestCase):
         delete_source: DeleteStrategy = DeleteStrategy.NEVER,
     ) -> tuple[Postprocessor, list[dict]]:
         postprocessor = Postprocessor(
-            SimpleNamespace(room_id=1),
+            SimpleNamespace(room_id=1, http_history=self.http_history),
             self.recorder,
             remux_to_mp4=True,
             delete_source=delete_source,
@@ -122,6 +123,10 @@ class HLSRemuxFallbackTestCase(unittest.IsolatedAsyncioTestCase):
         completed_files = list(postprocessor.get_completed_files())
         self.assertIn(self.video_path, completed_files)
         self.assertNotIn(self.playlist_path, completed_files)
+        self.http_history.mark_incident.assert_called_once()
+        call = self.http_history.mark_incident.call_args.kwargs
+        self.assertEqual(call['kind'], 'hls_remux_failed')
+        self.assertIn('Conversion failed again', call['details']['ffmpeg_output'])
 
     async def test_delete_strategy_is_applied_after_atomic_success(self) -> None:
         for strategy, source_should_exist in (

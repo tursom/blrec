@@ -14,7 +14,7 @@ from reactivex import Observable, abc
 from reactivex import operators as ops
 
 from blrec.core import operators as core_ops
-from blrec.http_history import record_http_exchange
+from blrec.http_history import record_http_exchange, redirects_from_response
 from blrec.utils import operators as utils_ops
 
 __all__ = ('RequestExceptionHandler',)
@@ -54,6 +54,7 @@ class RequestExceptionHandler:
                     parent_operation_id=(
                         self._stream_url_resolver.live.http_history_connection_id
                     ),
+                    redirects=redirects_from_response(response),
                 )
                 self._stream_url_resolver.live.http_history_connection_id = None
                 try:

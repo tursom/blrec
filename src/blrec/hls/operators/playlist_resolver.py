@@ -11,6 +11,7 @@ from reactivex import operators as ops
 from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposable
 
 from blrec.core import operators as core_ops
+from blrec.http_history import mark_http_incident
 from blrec.utils import operators as utils_ops
 
 from ..exceptions import NoNewSegments
@@ -117,4 +118,8 @@ class PlaylistResolver:
         if not isinstance(exc, NoNewSegments):
             return
         logger.warning('No new segments received, trying to update the stream url.')
+        live = self._stream_url_resolver.live
+        mark_http_incident(
+            live.http_history, room_id=live.room_id, kind='hls_playlist_stalled'
+        )
         self._stream_url_resolver.reset()

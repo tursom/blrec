@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 # Recorder package initialization expects settings/application to be loaded first.
 # isort: off
@@ -102,10 +102,11 @@ class HLSTaskRecoveryTestCase(unittest.IsolatedAsyncioTestCase):
         FakeRecordTask.fail_processing_room_id = None
         FakeRecordTask.fail_monitor_once_room_id = None
         FakeRecordTask.failed_monitor_rooms = set()
+        self.http_history = Mock()
 
     def make_manager(self, settings) -> RecordTaskManager:
         settings_manager = FakeSettingsManager(settings)
-        manager = RecordTaskManager(settings_manager, SimpleNamespace())
+        manager = RecordTaskManager(settings_manager, self.http_history)
         settings_manager.manager = manager
         return manager
 
@@ -141,6 +142,12 @@ class HLSTaskRecoveryTestCase(unittest.IsolatedAsyncioTestCase):
                 ('monitor', 1),
                 ('recorder', 2),
             ],
+        )
+        incident_calls = self.http_history.mark_incident.call_args_list
+        self.assertEqual(len(incident_calls), 2)
+        self.assertEqual({call.kwargs['room_id'] for call in incident_calls}, {1, 2})
+        self.assertTrue(
+            all(call.kwargs['kind'] == 'hls_crash_recovered' for call in incident_calls)
         )
 
     async def test_runtime_task_recovers_before_activation(self) -> None:

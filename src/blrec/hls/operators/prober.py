@@ -9,6 +9,7 @@ from loguru import logger
 from reactivex import Observable, Subject, abc
 from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposable
 
+from blrec.http_history import HttpHistoryStore, mark_http_incident
 from blrec.utils.ffprobe import StreamProfile, ffprobe_on
 
 from .segment_fetcher import InitSectionData, SegmentData
@@ -17,8 +18,15 @@ __all__ = ('Prober', 'StreamProfile')
 
 
 class Prober:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        http_history: Optional[HttpHistoryStore] = None,
+        room_id: Optional[int] = None,
+    ) -> None:
         self._profiles: Subject[StreamProfile] = Subject()
+        self._http_history = http_history
+        self._room_id = room_id
 
     def _reset(self) -> None:
         self._gathering: bool = False
@@ -59,6 +67,7 @@ class Prober:
                             self._do_probe()
                         except Exception as e:
                             logger.warning(f'Failed to probe stream: {repr(e)}')
+                            self._report_probe_failure(e)
                         finally:
                             self._gathered_items.clear()
                             self._gathering = False
@@ -88,5 +97,16 @@ class Prober:
 
         def on_error(e: Exception) -> None:
             logger.warning(f'Failed to probe stream by ffprobe: {repr(e)}')
+            self._report_probe_failure(e)
 
         ffprobe_on(bytes_io.getvalue()).subscribe(on_next, on_error)
+
+    def _report_probe_failure(self, exc: Exception) -> None:
+        if self._room_id is None:
+            return
+        mark_http_incident(
+            self._http_history,
+            room_id=self._room_id,
+            kind='hls_stream_probe_failed',
+            details={'error': repr(exc)},
+        )

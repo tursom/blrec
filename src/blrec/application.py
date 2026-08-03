@@ -23,7 +23,12 @@ from .disk_space import SpaceMonitor, SpaceReclaimer
 from .event.event_submitters import SpaceEventSubmitter
 from .exception import ExceptionHandler, ExistsError, exception_callback
 from .flv.operators import StreamProfile
-from .http_history import HttpHistoryExport, HttpHistoryStatus, HttpHistoryStore
+from .http_history import (
+    HttpHistoryExport,
+    HttpHistoryStatus,
+    HttpHistoryStore,
+    HttpIncidentSummary,
+)
 from .notification import (
     BarkNotifier,
     EmailNotifier,
@@ -342,6 +347,30 @@ class Application:
             partial(
                 self._http_history.export, room_id=room_id, since=since, until=until
             ),
+        )
+
+    async def list_http_incidents(
+        self,
+        *,
+        room_id: Optional[int] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> List[HttpIncidentSummary]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            partial(
+                self._http_history.list_incidents,
+                room_id=room_id,
+                since=since,
+                until=until,
+            ),
+        )
+
+    async def export_http_incident(self, incident_id: str) -> HttpHistoryExport:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, self._http_history.export_incident, incident_id
         )
 
     async def clear_http_history(self) -> None:

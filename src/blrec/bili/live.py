@@ -10,7 +10,11 @@ import aiohttp
 from jsonpath import jsonpath
 from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_exponential
 
-from ..http_history import HttpHistoryStore, record_http_exchange
+from ..http_history import (
+    HttpHistoryStore,
+    record_http_exchange,
+    redirects_from_response,
+)
 from .api import BASE_HEADERS, AppApi, WebApi
 from .exceptions import (
     LiveRoomEncrypted,
@@ -211,16 +215,45 @@ class Live:
         return self._room_info.live_status == LiveStatus.LIVE
 
     async def check_connectivity(self) -> bool:
+        started_at = time.perf_counter()
         try:
-            await self._session.head(
+            response = await self._session.head(
                 'https://live.bilibili.com/',
                 timeout=3,
                 headers={'User-Agent': self._user_agent},
             )
-            return True
         except Exception as e:
+            response = getattr(e, 'response', None)
+            record_http_exchange(
+                self._http_history,
+                room_id=self._room_id,
+                category='connectivity',
+                method='HEAD',
+                url='https://live.bilibili.com/',
+                request_headers={'User-Agent': self._user_agent},
+                response_status=getattr(response, 'status', None),
+                response_headers=getattr(response, 'headers', None),
+                error=e,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                redirects=redirects_from_response(response),
+            )
             self._logger.warning(f'Check connectivity failed: {repr(e)}')
             return False
+        else:
+            record_http_exchange(
+                self._http_history,
+                room_id=self._room_id,
+                category='connectivity',
+                method='HEAD',
+                url=str(response.url),
+                request_headers=response.request_info.headers,
+                response_status=response.status,
+                response_headers=response.headers,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                redirects=redirects_from_response(response),
+            )
+            response.release()
+            return True
 
     async def update_info(self, raise_exception: bool = False) -> bool:
         return all(
@@ -417,7 +450,7 @@ class Live:
         return room_info_data
 
     async def _get_live_status_via_html_page(self) -> int:
-        data, status, headers, started_at = await self._request_html_page()
+        data, status, headers, started_at, redirects = await self._request_html_page()
         try:
             info = self._extract_html_info(data)
             m = _LIVE_STATUS_PATTERN.search(data)
@@ -430,9 +463,12 @@ class Live:
                 started_at,
                 body=data.decode('utf8', errors='replace'),
                 error=exc,
+                redirects=redirects,
             )
             raise
-        self._record_html_exchange(status, headers, started_at, body=info)
+        self._record_html_exchange(
+            status, headers, started_at, body=info, redirects=redirects
+        )
         return live_status
 
     async def _get_user_info_via_html_page(self) -> UserInfo:
@@ -459,7 +495,7 @@ class Live:
         return info['roomInitRes']['data']
 
     async def _get_info_via_html_page(self) -> ResponseData:
-        data, status, headers, started_at = await self._request_html_page()
+        data, status, headers, started_at, redirects = await self._request_html_page()
         try:
             info = self._extract_html_info(data)
         except Exception as exc:
@@ -469,9 +505,12 @@ class Live:
                 started_at,
                 body=data.decode('utf8', errors='replace'),
                 error=exc,
+                redirects=redirects,
             )
             raise
-        self._record_html_exchange(status, headers, started_at, body=info)
+        self._record_html_exchange(
+            status, headers, started_at, body=info, redirects=redirects
+        )
         return info
 
     @staticmethod
@@ -482,11 +521,14 @@ class Live:
             raise ValueError('Can not extract info from html page')
         return json.loads(match.group(1).decode(encoding='utf8'))
 
-    async def _request_html_page(self) -> tuple[bytes, int, Mapping[str, str], float]:
+    async def _request_html_page(
+        self,
+    ) -> tuple[bytes, int, Mapping[str, str], float, list[dict]]:
         started_at = time.perf_counter()
         response_status = None
         response_headers: Mapping[str, str] = {}
         response_body = None
+        redirects = []
         try:
             async with self._session.get(
                 self._html_page_url, raise_for_status=False
@@ -494,9 +536,10 @@ class Live:
                 data = await response.read()
                 response_status = response.status
                 response_headers = response.headers
+                redirects = redirects_from_response(response)
                 response_body = data.decode('utf8', errors='replace')
                 response.raise_for_status()
-                return data, response.status, response.headers, started_at
+                return data, response.status, response.headers, started_at, redirects
         except Exception as exc:
             record_http_exchange(
                 self._http_history,
@@ -511,6 +554,7 @@ class Live:
                 error=exc,
                 duration_ms=(time.perf_counter() - started_at) * 1000,
                 max_body_size=512 * 1024,
+                redirects=redirects,
             )
             raise
 
@@ -522,6 +566,7 @@ class Live:
         *,
         body: Any,
         error: Optional[BaseException] = None,
+        redirects: Optional[list[dict]] = None,
     ) -> None:
         record_http_exchange(
             self._http_history,
@@ -536,4 +581,5 @@ class Live:
             error=error,
             duration_ms=(time.perf_counter() - started_at) * 1000,
             max_body_size=512 * 1024,
+            redirects=redirects,
         )

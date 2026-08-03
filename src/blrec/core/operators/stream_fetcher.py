@@ -12,7 +12,7 @@ from loguru import logger
 from reactivex import Observable, abc
 
 from blrec.bili.live import Live
-from blrec.http_history import record_http_exchange
+from blrec.http_history import record_http_exchange, redirects_from_response
 from blrec.utils.mixins import AsyncCooperationMixin
 
 __all__ = ('StreamFetcher',)
@@ -71,6 +71,7 @@ class StreamFetcher(AsyncCooperationMixin):
                         error=e,
                         duration_ms=(time.perf_counter() - started_at) * 1000,
                         operation_id=self._operation_id,
+                        redirects=redirects_from_response(response),
                     )
                     logger.warning(f'Failed to request live stream: {repr(e)}')
                     observer.on_error(e)
@@ -86,6 +87,7 @@ class StreamFetcher(AsyncCooperationMixin):
                         response_headers=response.headers,
                         duration_ms=(time.perf_counter() - started_at) * 1000,
                         operation_id=self._operation_id,
+                        redirects=redirects_from_response(response),
                     )
                     self._live.http_history_connection_id = self._operation_id
                     self._operation_id = None

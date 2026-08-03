@@ -13,7 +13,11 @@ import aiohttp
 from loguru import logger
 from tenacity import retry, stop_after_delay, wait_exponential
 
-from ..http_history import HttpHistoryStore, record_http_exchange
+from ..http_history import (
+    HttpHistoryStore,
+    record_http_exchange,
+    redirects_from_response,
+)
 from . import wbi
 from .exceptions import ApiRequestError
 from .typing import JsonResponse, QualityNumber, ResponseData
@@ -88,6 +92,7 @@ class BaseApi(ABC):
         response_headers: Mapping[str, Any] = {}
         response_body: Any = None
         request_headers: Mapping[str, Any] = self.headers
+        redirects = []
         error: Optional[BaseException] = None
         try:
             async with self._session.get(*args, **kwds) as res:
@@ -95,6 +100,7 @@ class BaseApi(ABC):
                 request_headers = res.request_info.headers
                 response_status = res.status
                 response_headers = res.headers
+                redirects = redirects_from_response(res)
                 text_res = await res.text()
                 response_body = text_res
                 self._logger.trace('Request: {}', res.request_info)
@@ -129,6 +135,7 @@ class BaseApi(ABC):
                 duration_ms=(time.perf_counter() - started_at) * 1000,
                 operation_id=operation_id,
                 parent_operation_id=parent_operation_id,
+                redirects=redirects,
             )
 
     async def _get_json(

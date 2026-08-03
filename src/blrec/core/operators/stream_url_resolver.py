@@ -23,7 +23,7 @@ from blrec.bili.exceptions import (
 )
 from blrec.bili.live import Live
 from blrec.bili.live_monitor import LiveMonitor
-from blrec.http_history import record_http_exchange
+from blrec.http_history import record_http_exchange, redirects_from_response
 from blrec.utils import operators as utils_ops
 from blrec.utils.mixins import AsyncCooperationMixin
 
@@ -155,6 +155,7 @@ class StreamURLResolver(AsyncCooperationMixin):
                     response_headers=getattr(response, 'headers', None),
                     error=exc,
                     duration_ms=(time.perf_counter() - started_at) * 1000,
+                    redirects=redirects_from_response(response),
                 )
                 return False
             else:
@@ -168,6 +169,7 @@ class StreamURLResolver(AsyncCooperationMixin):
                     response_status=response.status_code,
                     response_headers=response.headers,
                     duration_ms=(time.perf_counter() - started_at) * 1000,
+                    redirects=redirects_from_response(response),
                 )
                 return True
         else:

@@ -17,7 +17,11 @@ from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposab
 from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_exponential
 
 from blrec.bili.live import Live
-from blrec.http_history import record_http_exchange
+from blrec.http_history import (
+    mark_http_incident,
+    record_http_exchange,
+    redirects_from_response,
+)
 from blrec.utils.mixins import SupportDebugMixin
 
 __all__ = ('PlaylistFetcher',)
@@ -62,7 +66,17 @@ class PlaylistFetcher(SupportDebugMixin):
                     else:
                         if self._debug:
                             playlist_debug_file.write(content + '\n')
-                        playlist = m3u8.loads(content, uri=url)
+                        try:
+                            playlist = m3u8.loads(content, uri=url)
+                        except Exception as exc:
+                            mark_http_incident(
+                                self._live.http_history,
+                                room_id=self._live.room_id,
+                                kind='hls_playlist_parse_failed',
+                                details={'url': url, 'error': repr(exc)},
+                            )
+                            observer.on_error(exc)
+                            return
                         if playlist.is_variant:
                             # master playlist 本身不含媒体分片，递归切换到最高带宽子清单。
                             url = self._get_best_quality_url(playlist)
@@ -93,7 +107,18 @@ class PlaylistFetcher(SupportDebugMixin):
         return sorted_playlists[-1].absolute_uri
 
     def _fetch_playlist(self, url: str) -> str:
-        return self._fetch_playlist_with_retry(url, uuid.uuid4().hex)
+        operation_id = uuid.uuid4().hex
+        try:
+            return self._fetch_playlist_with_retry(url, operation_id)
+        except Exception as exc:
+            mark_http_incident(
+                self._live.http_history,
+                room_id=self._live.room_id,
+                kind='hls_playlist_fetch_failed',
+                operation_id=operation_id,
+                details={'url': url, 'error': repr(exc)},
+            )
+            raise
 
     @retry(
         reraise=True,
@@ -128,6 +153,7 @@ class PlaylistFetcher(SupportDebugMixin):
                 duration_ms=(time.perf_counter() - started_at) * 1000,
                 operation_id=operation_id,
                 max_body_size=1024 * 1024,
+                redirects=redirects_from_response(failed_response),
             )
             logger.debug(f'Failed to fetch playlist: {repr(e)}')
             raise
@@ -151,5 +177,6 @@ class PlaylistFetcher(SupportDebugMixin):
                 operation_id=operation_id,
                 max_body_size=1024 * 1024,
                 extra={'body_unchanged': not changed, 'body_sha256': digest},
+                redirects=redirects_from_response(response),
             )
             return content
